@@ -1,0 +1,230 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Exam types: SPEAKING, WRITING
+enum ExamType {
+  SPEAKING
+  WRITING
+}
+
+// Question formats for Speaking exams
+enum QuestionFormat {
+  AUDIO_ONLY
+  PICTURE_TEXT
+  VIDEO
+  TEXT_ONLY
+}
+
+// Exam unlock codes
+model Exam {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  type        ExamType
+  unlockCode  String   @unique // Code to unlock the exam
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  questions      SpeakingQuestion[]
+  writingPrompts WritingPrompt[]
+  sessions       ExamSession[]
+
+  @@index([type, isActive])
+}
+
+// Speaking exam questions
+model SpeakingQuestion {
+  id                String         @id @default(cuid())
+  examId            String
+  order             Int            // Order in the exam
+  format            QuestionFormat // AUDIO_ONLY, PICTURE_TEXT, VIDEO, TEXT_ONLY
+  text              String         // Question text
+  mediaUrl          String?        // URL for audio/video/image (null for TEXT_ONLY)
+  timestamp         Float?         // For VIDEO format - when to pause (seconds)
+  instructions      String?        // Additional instructions
+  readingTimeLimit  Int?           // Time limit for reading the question (seconds)
+  answeringTimeLimit Int?          // Time limit for answering the question (seconds)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  // Relations
+  exam           Exam               @relation(fields: [examId], references: [id], onDelete: Cascade)
+  speakingAnswers SpeakingAnswer[]
+
+  @@index([examId, order])
+}
+
+// Writing exam prompts
+model WritingPrompt {
+  id           String   @id @default(cuid())
+  examId       String
+  order        Int      // Order in the exam
+  title        String   // Prompt title
+  prompt       String   @db.Text // The writing prompt/instructions
+  wordLimit    Int?     // Optional word limit
+  timeLimit    Int?     // Optional time limit in minutes
+  instructions String?  @db.Text // Additional instructions
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  exam           Exam           @relation(fields: [examId], references: [id], onDelete: Cascade)
+  writingAnswers WritingAnswer[]
+
+  @@index([examId, order])
+}
+
+// Student exam sessions
+model ExamSession {
+  id             String    @id @default(cuid())
+  examId         String
+  studentName    String
+  unlockCode     String    // Code used to unlock
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+  aiCodeUsed     String?   // AI code used for grading
+  isAiGraded     Boolean   @default(false)
+  isManuallyGraded Boolean @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relations
+  exam            Exam              @relation(fields: [examId], references: [id], onDelete: Cascade)
+  speakingAnswers SpeakingAnswer[]
+  writingAnswers  WritingAnswer[]
+  aiGrades        AIGrade[]
+  manualGrades    ManualGrade[]
+
+  @@index([examId, studentName])
+}
+
+// Speaking exam answers (audio responses)
+model SpeakingAnswer {
+  id             String   @id @default(cuid())
+  sessionId      String
+  questionId     String
+  audioUrl       String?  // URL to stored audio file
+  transcription  String?  @db.Text // Transcribed text from Whisper
+  duration       Int?     // Duration in seconds
+  recordedAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  session  ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question SpeakingQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, questionId])
+  @@index([sessionId])
+}
+
+// Writing exam answers (text responses with auto-save)
+model WritingAnswer {
+  id           String   @id @default(cuid())
+  sessionId    String
+  promptId     String
+  content      String   @db.Text // The written response
+  lastSavedAt  DateTime @default(now()) // For auto-save tracking
+  wordCount    Int      @default(0)
+  submittedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  session ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  prompt  WritingPrompt @relation(fields: [promptId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, promptId])
+  @@index([sessionId])
+}
+
+// AI grading results
+model AIGrade {
+  id          String   @id @default(cuid())
+  sessionId   String
+  summary     String   @db.Text // AI-generated summary
+  feedback    String   @db.Text // AI-generated feedback
+  score       Float?   // Optional numeric score
+  metadata    Json?    // Additional AI metadata (model used, tokens, etc.)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  session ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+// Manual grading results (teacher override)
+model ManualGrade {
+  id          String   @id @default(cuid())
+  sessionId   String   @unique // One manual grade per session
+  summary     String   @db.Text // Teacher's summary
+  feedback    String   @db.Text // Teacher's feedback
+  score       Float?   // Teacher's score
+  gradedBy    String   // Teacher name/id
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  session ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+// AI codes (for students to enable AI grading)
+model AICode {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  isActive    Boolean  @default(true)
+  maxUses     Int?     // null = unlimited
+  useCount    Int      @default(0)
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([code, isActive])
+}
+
+// Admin configuration
+model AdminConfig {
+  id              String   @id @default(cuid())
+  key             String   @unique // e.g., "ai_model", "ai_api_key"
+  value           String   @db.Text
+  description     String?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+}
+
+// Admin access codes (for protecting /admin route)
+model AdminCode {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+// Custom AI grading prompts
+model AIPrompt {
+  id          String   @id @default(cuid())
+  name        String   @unique // e.g., "speaking_grading", "writing_grading"
+  displayName String   // Human-readable name
+  examType    ExamType // SPEAKING or WRITING
+  prompt      String   @db.Text // The custom prompt template
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([examType, isActive])
+}

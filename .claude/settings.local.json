@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run dev)",
+      "Bash(ping:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx prisma migrate dev:*)",
+      "Bash(npx prisma db push:*)",
+      "Bash(npx tsx:*)",
+      "mcp__web-search-prime__webSearchPrime",
+      "Bash(dir:*)"
+    ]
+  }
+}

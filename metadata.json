@@ -1,0 +1,7 @@
+{
+  "name": "Bestcenter Speaking - AI Testing Center",
+  "description": "A comprehensive English speaking test platform featuring video-based scenarios, automated audio recording, and AI-powered performance summaries.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
