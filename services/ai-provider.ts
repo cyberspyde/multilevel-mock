@@ -35,6 +35,7 @@ export const OPENROUTER_PAID_MODELS = [
 
 // Local model options (for Ollama, LM Studio, etc.)
 export const LOCAL_MODELS = [
+  'google/gemma-3-4b',
   'llama3.2:3b',
   'llama3.2:1b',
   'phi3.5:3.8b',
@@ -50,7 +51,7 @@ export const PROVIDER_MODELS: Record<AIProvider, { default: string; options: str
     options: [...OPENROUTER_FREE_MODELS, ...OPENROUTER_PAID_MODELS],
   },
   local: {
-    default: LOCAL_MODELS[0],
+    default: 'google/gemma-3-4b',
     options: LOCAL_MODELS,
   },
 };
@@ -134,8 +135,12 @@ export function getDefaultProvider(
   const available = getAvailableProviders(dbConfig);
   if (available.length === 0) return null;
 
-  if (preferred && available.includes(preferred)) {
-    return preferred;
+  // Check environment variable for preferred provider
+  const envPreferred = process.env.AI_PROVIDER_PREFERRED as AIProvider;
+  const providerToTry = preferred || envPreferred;
+
+  if (providerToTry && available.includes(providerToTry)) {
+    return providerToTry;
   }
 
   return available[0];
