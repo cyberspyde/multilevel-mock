@@ -10,7 +10,10 @@
       "Bash(npx prisma db push:*)",
       "Bash(npx tsx:*)",
       "mcp__web-search-prime__webSearchPrime",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(npm config set:*)",
+      "Bash(npm_config_sharp_binary_host=\"https://npmmirror.com/mirrors/sharp-binaries/\" npm install:*)",
+      "Bash(npm ls:*)"
     ]
   }
 }
