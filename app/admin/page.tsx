@@ -1688,6 +1688,36 @@ function AITab() {
                     Available models: google/gemma-3-4b, llama3.2:3b, llama3.2:1b, phi3.5:3.8b, qwen2.5:3b, gemma2:2b
                   </p>
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Test Connection
+                  </label>
+                  <button
+                    onClick={handleTestLLM}
+                    disabled={testingLLM}
+                    className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-medium rounded-lg flex items-center justify-center gap-2"
+                  >
+                    {testingLLM ? (
+                      <>
+                        <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Testing...
+                      </>
+                    ) : (
+                      'Test LLM Connection'
+                    )}
+                  </button>
+                  {llmTestResult && (
+                    <div className={`mt-2 p-3 rounded-lg text-sm ${llmTestResult.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+                      <p>{llmTestResult.message}</p>
+                      {llmTestResult.duration && (
+                        <p className="text-xs mt-1 opacity-75">Response time: {llmTestResult.duration}ms</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>
@@ -1928,6 +1958,8 @@ function SettingsTab() {
     maxUses: '',
     expiresAt: '',
   });
+  const [testingLLM, setTestingLLM] = useState(false);
+  const [llmTestResult, setLlmTestResult] = useState<{ success: boolean; message: string; duration?: number } | null>(null);
 
   useEffect(() => {
     fetchConfig();
@@ -2065,6 +2097,56 @@ function SettingsTab() {
       });
 
       if (!res.ok) {
+        throw new Error('Failed to save config');
+      }
+
+      alert('Configuration saved successfully!');
+    } catch (err) {
+      console.error('Failed to save config:', err);
+      alert('Failed to save configuration');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTestLLM = async () => {
+    setTestingLLM(true);
+    setLlmTestResult(null);
+
+    const apiUrl = config.local_api_url || process.env.LOCAL_API_URL || 'http://localhost:1234/v1';
+    const model = config.local_model || 'google/gemma-3-4b';
+
+    try {
+      const res = await fetch('/api/admin/test-llm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiUrl, model }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setLlmTestResult({
+          success: true,
+          message: `Connected! Response: "${data.response}"`,
+          duration: data.duration,
+        });
+      } else {
+        setLlmTestResult({
+          success: false,
+          message: `Failed: ${data.error}`,
+          duration: data.duration,
+        });
+      }
+    } catch (err: any) {
+      setLlmTestResult({
+        success: false,
+        message: `Error: ${err.message}`,
+      });
+    } finally {
+      setTestingLLM(false);
+    }
+  };
         throw new Error('Failed to save settings');
       }
 
@@ -2192,12 +2274,40 @@ function SettingsTab() {
                   Load the model in LM Studio
                 </p>
               </div>
+              <div>
+                <button
+                  onClick={handleTestLLM}
+                  disabled={testingLLM}
+                  className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-medium rounded-lg flex items-center justify-center gap-2"
+                >
+                  {testingLLM ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Testing...
+                    </>
+                  ) : (
+                    'Test LLM Connection'
+                  )}
+                </button>
+                {llmTestResult && (
+                  <div className={`mt-2 p-3 rounded-lg text-sm ${llmTestResult.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+                    <p>{llmTestResult.message}</p>
+                    {llmTestResult.duration && (
+                      <p className="text-xs mt-1 opacity-75">Response time: {llmTestResult.duration}ms</p>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-xs text-blue-900">
                   <strong>Setup instructions:</strong>
                   <br />1. Install LM Studio from <a href="https://lmstudio.ai" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-700">lmstudio.ai</a>
                   <br />2. Search and load <code>google/gemma-3-4b</code>
                   <br />3. Start the API server on port 1234
+                  <br />4. <strong>Enable CORS</strong> in the server settings (check the "Apply CORS" or "Enable CORS" box)
                 </p>
               </div>
             </>
