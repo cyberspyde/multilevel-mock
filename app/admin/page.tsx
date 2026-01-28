@@ -1679,13 +1679,13 @@ function AITab() {
                   </label>
                   <input
                     type="text"
-                    value={config.local_model || 'llama3.2:3b'}
+                    value={config.local_model || 'google/gemma-3-4b'}
                     onChange={(e) => setConfig({ ...config, local_model: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none"
-                    placeholder="llama3.2:3b"
+                    placeholder="google/gemma-3-4b"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Available models: llama3.2:3b, llama3.2:1b, phi3.5:3.8b, qwen2.5:3b, gemma2:2b
+                    Available models: google/gemma-3-4b, llama3.2:3b, llama3.2:1b, phi3.5:3.8b, qwen2.5:3b, gemma2:2b
                   </p>
                 </div>
               </>
@@ -2176,27 +2176,28 @@ function SettingsTab() {
                   Local Model
                 </label>
                 <select
-                  value={config.local_model || 'llama3.2:3b'}
+                  value={config.local_model || 'google/gemma-3-4b'}
                   onChange={(e) => setConfig({ ...config, local_model: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none"
                 >
-                  <option value="llama3.2:3b">llama3.2:3b (Recommended)</option>
+                  <option value="google/gemma-3-4b">google/gemma-3-4b (Recommended)</option>
+                  <option value="llama3.2:3b">llama3.2:3b</option>
                   <option value="llama3.2:1b">llama3.2:1b (Fastest)</option>
-                  <option value="phi3.5:3.8b">phi3.5:3.8b (Good quality)</option>
+                  <option value="phi3.5:3.8b">phi3.5:3.8b</option>
                   <option value="qwen2.5:3b">qwen2.5:3b</option>
                   <option value="gemma2:2b">gemma2:2b</option>
                   <option value="tinyllama:1.1b">tinyllama:1.1b</option>
                 </select>
                 <p className="text-xs text-gray-500 mt-1">
-                  Make sure to pull the model first: <code>ollama pull {config.local_model || 'llama3.2:3b'}</code>
+                  Load the model in LM Studio
                 </p>
               </div>
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-xs text-blue-900">
                   <strong>Setup instructions:</strong>
-                  <br />1. Install Ollama from <a href="https://ollama.ai" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-700">ollama.ai</a>
-                  <br />2. Run: <code>ollama pull {config.local_model || 'llama3.2:3b'}</code>
-                  <br />3. Ollama automatically runs on port 11434
+                  <br />1. Install LM Studio from <a href="https://lmstudio.ai" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-700">lmstudio.ai</a>
+                  <br />2. Search and load <code>google/gemma-3-4b</code>
+                  <br />3. Start the API server on port 1234
                 </p>
               </div>
             </>
