@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (exam.unlockCode !== unlockCode) {
+    if (exam.unlockCode !== unlockCode.toUpperCase()) {
       return NextResponse.json(
         { error: ERROR_MESSAGES.INVALID_CODE },
         { status: 401 }
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
       data: {
         examId,
         studentName: studentName.trim(),
-        unlockCode,
+        unlockCode: unlockCode.toUpperCase(),
       },
       include: {
         exam: {
@@ -79,21 +79,16 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(session);
-  } catch (error: any) {
-    console.error('[Sessions API] Error creating session:', error);
-
+  } catch (error: unknown) {
     // Handle unique constraint violations
-    if (error.code === 'P2002') {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
       return NextResponse.json(
         { error: 'A session with this information already exists.' },
         { status: 409 }
       );
     }
 
-    return NextResponse.json(
-      { error: ERROR_MESSAGES.CREATE_FAILED },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: ERROR_MESSAGES.CREATE_FAILED }, { status: 500 });
   }
 }
 
@@ -104,10 +99,7 @@ export async function GET(request: NextRequest) {
     const sessionId = searchParams.get('id');
 
     if (!sessionId) {
-      return NextResponse.json(
-        { error: ERROR_MESSAGES.SESSION_ID_REQUIRED },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: ERROR_MESSAGES.SESSION_ID_REQUIRED }, { status: 400 });
     }
 
     const session = await prisma.examSession.findUnique({
@@ -115,24 +107,16 @@ export async function GET(request: NextRequest) {
       include: {
         exam: {
           include: {
-            questions: {
-              orderBy: { order: 'asc' },
-            },
-            writingPrompts: {
-              orderBy: { order: 'asc' },
-            },
+            questions: { orderBy: { order: 'asc' } },
+            writingPrompts: { orderBy: { order: 'asc' } },
           },
         },
         speakingAnswers: {
-          include: {
-            question: true,
-          },
+          include: { question: true },
           orderBy: { createdAt: 'asc' },
         },
         writingAnswers: {
-          include: {
-            prompt: true,
-          },
+          include: { prompt: true },
           orderBy: { createdAt: 'asc' },
         },
         aiGrades: true,
@@ -141,18 +125,11 @@ export async function GET(request: NextRequest) {
     });
 
     if (!session) {
-      return NextResponse.json(
-        { error: ERROR_MESSAGES.SESSION_NOT_FOUND },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: ERROR_MESSAGES.SESSION_NOT_FOUND }, { status: 404 });
     }
 
     return NextResponse.json(session);
-  } catch (error: any) {
-    console.error('[Sessions API] Error fetching session:', error);
-    return NextResponse.json(
-      { error: ERROR_MESSAGES.FETCH_FAILED },
-      { status: 500 }
-    );
+  } catch {
+    return NextResponse.json({ error: ERROR_MESSAGES.FETCH_FAILED }, { status: 500 });
   }
 }

@@ -58,6 +58,16 @@ async function main() {
       description: 'API key for AI service (Gemini, OpenAI, etc.)',
     },
   });
+
+  const whisperMode = await prisma.adminConfig.upsert({
+    where: { key: 'whisper_mode' },
+    update: {},
+    create: {
+      key: 'whisper_mode',
+      value: 'server',
+      description: 'Whisper transcription mode: client (browser-based) or server (local whisper-server)',
+    },
+  });
   console.log('✅ Admin config created');
 
   // Create sample Speaking exam

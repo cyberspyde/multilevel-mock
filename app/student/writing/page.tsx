@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import SearchBar from '../../../components/SearchBar';
 
@@ -274,8 +274,8 @@ export default function WritingExamPage() {
                   <input
                     type="text"
                     value={unlockCode}
-                    onChange={(e) => setUnlockCode(e.target.value)}
-                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-center text-lg font-mono tracking-wider"
+                    onChange={(e) => setUnlockCode(e.target.value.toUpperCase())}
+                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-center text-lg font-mono tracking-widest uppercase text-gray-900 placeholder:text-gray-300 transition-all"
                     placeholder="ENTER-CODE"
                     autoFocus
                   />
@@ -318,10 +318,47 @@ function WritingExamInterface({ sessionId }: { sessionId: string }) {
   const [savingStatus, setSavingStatus] = useState<Record<string, 'saving' | 'saved' | 'error'>>({});
   const [submitting, setSubmitting] = useState(false);
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [timeRemaining, setTimeRemaining] = useState<number>(0);
+  const [examStartedAt, setExamStartedAt] = useState<number>(Date.now());
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     fetchExam();
+    return () => {
+      // Clean up timers on unmount
+      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
   }, [sessionId]);
+
+  // Setup timer when exam is loaded
+  useEffect(() => {
+    if (!exam || !exam.writingPrompts) return;
+
+    // Calculate total time in seconds (sum of all prompt time limits)
+    const totalMinutes = exam.writingPrompts.reduce((sum: number, p: any) => sum + (p.timeLimit || 0), 0);
+    const totalSeconds = totalMinutes * 60;
+
+    if (totalSeconds > 0) {
+      setTimeRemaining(totalSeconds);
+
+      // Start countdown
+      timerIntervalRef.current = setInterval(() => {
+        setTimeRemaining(prev => {
+          if (prev <= 1) {
+            // Time's up - auto submit
+            handleSubmit();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, [exam]);
 
   const fetchExam = async () => {
     setIsLoadingExam(true);
@@ -408,10 +445,30 @@ function WritingExamInterface({ sessionId }: { sessionId: string }) {
     autoSave(promptId, content);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
+    // Prevent double submit
+    if (submitting) return;
+
     setSubmitting(true);
 
     try {
+      // Check word count requirements
+      const wordCountWarnings: string[] = [];
+      for (const prompt of exam.writingPrompts) {
+        const wordCount = wordCounts[prompt.id] || 0;
+        if (prompt.wordLimit && wordCount < prompt.wordLimit) {
+          wordCountWarnings.push(`Task ${prompt.order}: ${wordCount}/${prompt.wordLimit} words`);
+        }
+      }
+
+      // Show warning if below word count (but allow submit)
+      if (wordCountWarnings.length > 0 && !window.confirm(
+        `Warning: You are below the minimum word count for some tasks:\n\n${wordCountWarnings.join('\n')}\n\nSubmit anyway?`
+      )) {
+        setSubmitting(false);
+        return;
+      }
+
       // Submit all answers
       for (const prompt of exam.writingPrompts) {
         const content = answers[prompt.id] || '';
@@ -435,7 +492,7 @@ function WritingExamInterface({ sessionId }: { sessionId: string }) {
       setSubmitting(false);
       alert('Failed to submit exam. Please try again.');
     }
-  };
+  }, [exam, answers, wordCounts, sessionId, submitting]);
 
   if (isLoadingExam) {
     return (
@@ -478,6 +535,25 @@ function WritingExamInterface({ sessionId }: { sessionId: string }) {
   const currentWordCount = wordCounts[currentPrompt.id] || 0;
   const currentSavingStatus = savingStatus[currentPrompt.id];
 
+  // Format time as MM:SS
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Get timer color based on remaining time
+  const getTimerColor = (): string => {
+    if (timeRemaining === 0) return 'text-gray-400';
+    const totalMinutes = exam?.writingPrompts?.reduce((sum: number, p: any) => sum + (p.timeLimit || 0), 0) || 0;
+    const totalSeconds = totalMinutes * 60;
+    const percentage = (timeRemaining / totalSeconds) * 100;
+
+    if (percentage <= 10) return 'text-red-600 animate-pulse';
+    if (percentage <= 25) return 'text-orange-600';
+    return 'text-purple-600';
+  };
+
   return (
     <div className="space-y-6">
       {/* Progress Header */}
@@ -496,6 +572,24 @@ function WritingExamInterface({ sessionId }: { sessionId: string }) {
             <span className="text-gray-400"> / {exam.writingPrompts.length}</span>
           </div>
         </div>
+
+        {/* Countdown Timer */}
+        {timeRemaining > 0 && (
+          <div className={`flex items-center justify-center gap-3 py-3 px-4 rounded-xl ${timeRemaining <= 60 ? 'bg-red-50 border border-red-200' : timeRemaining <= 300 ? 'bg-orange-50 border border-orange-200' : 'bg-purple-50 border border-purple-200'}`}>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-sm font-medium">Time Remaining:</span>
+            <span className={`text-2xl font-bold font-mono ${getTimerColor()}`}>
+              {formatTime(timeRemaining)}
+            </span>
+            {timeRemaining <= 60 && (
+              <span className="text-xs text-red-600 font-medium animate-pulse">
+                (Auto-submitting soon!)
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Task Navigation */}
         <div className="flex gap-2 overflow-x-auto pb-2">

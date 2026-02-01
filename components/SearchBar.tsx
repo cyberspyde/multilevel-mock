@@ -14,10 +14,10 @@ const SearchBar: React.FC<SearchBarProps> = ({
   resultCount,
 }) => {
   return (
-    <div className="relative w-full">
-      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+    <div className="relative w-full group">
+      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
         <svg
-          className="h-5 w-5 text-gray-400"
+          className="h-5 w-5 text-slate-400 group-focus-within:text-blue-500 transition-colors"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -34,17 +34,17 @@ const SearchBar: React.FC<SearchBarProps> = ({
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="block w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+        className="block w-full pl-12 pr-28 py-3.5 bg-white border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-slate-900 placeholder:text-slate-400 shadow-sm"
         placeholder={placeholder}
       />
       {value && (
-        <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-          <button
-            onClick={() => onChange('')}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
+        <button
+          onClick={() => onChange('')}
+          className="absolute inset-y-0 right-0 pr-3 flex items-center group/btn"
+        >
+          <div className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
             <svg
-              className="h-5 w-5"
+              className="h-4 w-4 text-slate-400 group-hover/btn:text-slate-600 transition-colors"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -56,12 +56,12 @@ const SearchBar: React.FC<SearchBarProps> = ({
                 d="M6 18L18 6M6 6l12 12"
               />
             </svg>
-          </button>
-        </div>
+          </div>
+        </button>
       )}
       {resultCount !== undefined && !value && (
-        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-          <span className="text-sm text-gray-400">{resultCount} results</span>
+        <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none">
+          <span className="text-sm text-slate-400 font-medium">{resultCount} {resultCount === 1 ? 'exam' : 'exams'}</span>
         </div>
       )}
     </div>

@@ -68,7 +68,6 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      console.log(`[Speaking Answer API] Updated existing answer: ${updatedAnswer.id}`);
       return NextResponse.json({
         success: true,
         answer: updatedAnswer,
@@ -87,33 +86,23 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    console.log(`[Speaking Answer API] Created new answer: ${answer.id}`);
     return NextResponse.json({
       success: true,
       answer,
       created: true,
     });
-  } catch (error: any) {
-    console.error('[Speaking Answer API] Error saving answer:', error);
+  } catch (error: unknown) {
 
     // Handle specific Prisma errors
-    if (error.code === 'P2003') {
-      return NextResponse.json(
-        { error: 'Invalid session or question ID.' },
-        { status: 400 }
-      );
+    if (error && typeof error === 'object' && 'code' in error) {
+      if (error.code === 'P2003') {
+        return NextResponse.json({ error: 'Invalid session or question ID.' }, { status: 400 });
+      }
+      if (error.code === 'P2002') {
+        return NextResponse.json({ error: ERROR_MESSAGES.ANSWER_EXISTS }, { status: 409 });
+      }
     }
 
-    if (error.code === 'P2002') {
-      return NextResponse.json(
-        { error: ERROR_MESSAGES.ANSWER_EXISTS },
-        { status: 409 }
-      );
-    }
-
-    return NextResponse.json(
-      { error: ERROR_MESSAGES.SAVE_FAILED },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: ERROR_MESSAGES.SAVE_FAILED }, { status: 500 });
   }
 }

@@ -12,7 +12,6 @@ function WritingResultContent() {
   const [aiCode, setAiCode] = useState('');
   const [submittingAi, setSubmittingAi] = useState(false);
   const [error, setError] = useState('');
-  const [selectedProvider, setSelectedProvider] = useState<'local' | 'openrouter'>('local');
   const [customPrompts, setCustomPrompts] = useState<any[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<string>('');
 
@@ -55,7 +54,6 @@ function WritingResultContent() {
         body: JSON.stringify({
           sessionId,
           aiCode,
-          preferredProvider: selectedProvider,
           promptId: selectedPromptId || undefined,
         }),
       });
@@ -180,26 +178,6 @@ function WritingResultContent() {
                     className="w-full px-4 py-3 rounded-lg border border-purple-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none bg-white"
                     placeholder="Enter your AI code (e.g., AI-GRADER-2024)"
                   />
-                </div>
-
-                {/* AI Provider Selection */}
-                <div>
-                  <label className="block text-sm font-medium text-purple-900 mb-1">
-                    AI Provider
-                  </label>
-                  <select
-                    value={selectedProvider}
-                    onChange={(e) => setSelectedProvider(e.target.value as 'local' | 'openrouter')}
-                    className="w-full px-4 py-3 rounded-lg border border-purple-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none bg-white"
-                  >
-                    <option value="local">Local AI (Ollama/LM Studio)</option>
-                    <option value="openrouter">OpenRouter API</option>
-                  </select>
-                  <p className="text-xs text-purple-600 mt-1">
-                    {selectedProvider === 'local'
-                      ? 'Use local AI models running on your machine (GTX 5050 compatible)'
-                      : 'Use cloud-based AI models via OpenRouter API'}
-                  </p>
                 </div>
 
                 {/* Custom Prompt Selection (Optional) */}

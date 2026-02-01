@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (exam.unlockCode !== unlockCode) {
+    if (exam.unlockCode !== unlockCode.toUpperCase()) {
       return NextResponse.json(
         { error: 'Invalid unlock code' },
         { status: 401 }

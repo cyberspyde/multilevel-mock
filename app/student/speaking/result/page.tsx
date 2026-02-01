@@ -13,9 +13,13 @@ function SpeakingResultContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [submittingAi, setSubmittingAi] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<'local' | 'openrouter'>('local');
   const [customPrompts, setCustomPrompts] = useState<any[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<string>('');
+  const [transcribing, setTranscribing] = useState(false);
+  const [transcriptionProgress, setTranscriptionProgress] = useState({ current: 0, total: 0 });
+  const [transcriptionComplete, setTranscriptionComplete] = useState(false);
+  const [transcriptionStarted, setTranscriptionStarted] = useState(false);
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (sessionId) {
@@ -24,13 +28,77 @@ function SpeakingResultContent() {
     }
   }, [sessionId]);
 
+  // Start background transcription once when session loads
+  useEffect(() => {
+    if (session && session.speakingAnswers && !transcriptionStarted) {
+      const answersNeedingTranscription = session.speakingAnswers.filter(
+        (a: { audioUrl?: string | null; transcription?: string | null }) => a.audioUrl && !a.transcription
+      );
+      if (answersNeedingTranscription.length > 0) {
+        setTranscriptionStarted(true);
+        setTranscriptionProgress({ current: 0, total: answersNeedingTranscription.length });
+        startBackgroundTranscription(answersNeedingTranscription.length);
+      }
+    }
+  }, [session, transcriptionStarted]);
+
+  const startBackgroundTranscription = async (count: number) => {
+    setTranscriptionError(null);
+    try {
+      setTranscribing(true);
+      console.log('[Transcription] Starting transcription for', count, 'answers');
+      const res = await fetch('/api/speaking/transcribe-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        const errorMsg = data.error || 'Transcription failed';
+        console.error('[Transcription] Server error:', errorMsg);
+        setTranscriptionError(errorMsg);
+        return;
+      }
+
+      console.log('[Transcription] Result:', data);
+      // Log detailed errors for debugging
+      if (data.results) {
+        data.results.forEach((r: any, i: number) => {
+          if (!r.success) {
+            console.error(`[Transcription] Answer ${i + 1} failed:`, r.error);
+          } else {
+            console.log(`[Transcription] Answer ${i + 1} success:`, r.transcription?.substring(0, 30) + '...');
+          }
+        });
+      }
+      // Refresh session data after transcription completes
+      await fetchSession();
+      setTranscriptionComplete(true);
+
+      // Show error if some transcriptions failed
+      if (data.failureCount > 0) {
+        setTranscriptionError(`${data.failureCount} of ${data.processed} transcriptions failed. The audio was saved but could not be converted to text.`);
+      }
+
+      // Auto-hide notification after 5 seconds
+      setTimeout(() => setTranscriptionComplete(false), 5000);
+    } catch (err: any) {
+      const errorMsg = err?.message || 'Network error during transcription';
+      console.error('[Transcription] Error:', errorMsg);
+      setTranscriptionError(errorMsg);
+    } finally {
+      setTranscribing(false);
+    }
+  };
+
   const fetchSession = async () => {
     try {
       const res = await fetch(`/api/sessions?id=${sessionId}`);
       const data = await res.json();
       setSession(data);
-    } catch (err) {
-      console.error('Failed to fetch session:', err);
+    } catch {
+      // Silently fail
     }
   };
 
@@ -39,8 +107,8 @@ function SpeakingResultContent() {
       const res = await fetch('/api/admin/prompts');
       const data = await res.json();
       setCustomPrompts(data);
-    } catch (err) {
-      console.error('Failed to fetch custom prompts:', err);
+    } catch {
+      // Silently fail
     }
   };
 
@@ -56,7 +124,6 @@ function SpeakingResultContent() {
         body: JSON.stringify({
           sessionId,
           aiCode,
-          preferredProvider: selectedProvider,
           promptId: selectedPromptId || undefined,
         }),
       });
@@ -150,16 +217,83 @@ function SpeakingResultContent() {
                     </span>
                   </div>
                   <p className="text-gray-700 mb-2">{answer.question.text}</p>
+                  {answer.audioUrl && (
+                    <div className="mt-4 p-4 bg-white rounded-lg border border-gray-200">
+                      <p className="text-sm text-gray-500 mb-2">Your Recording:</p>
+                      <audio
+                        controls
+                        preload="metadata"
+                        src={answer.audioUrl}
+                        className="w-full"
+                      >
+                        Your browser does not support the audio element.
+                      </audio>
+                    </div>
+                  )}
                   {answer.transcription ? (
                     <div className="mt-4 p-4 bg-white rounded-lg border border-gray-200">
-                      <p className="text-sm text-gray-500 mb-1">Your Response:</p>
-                      <p className="text-gray-900 italic">"{answer.transcription}"</p>
+                      <p className="text-sm text-gray-500 mb-1">Transcription:</p>
+                      <p className="text-gray-900">"{answer.transcription}"</p>
                     </div>
                   ) : (
-                    <p className="text-gray-400 italic mt-2">Response transcribed...</p>
+                    <div className="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
+                      <p className="text-sm text-red-600 font-medium mb-1">
+                        {answer.audioUrl ? 'Transcription Failed' : 'No Response Recorded'}
+                      </p>
+                      <p className="text-xs text-red-500">
+                        {answer.audioUrl
+                          ? 'The speech-to-text service was unable to transcribe your recording. Your audio was saved, but we could not generate text.'
+                          : 'No audio was recorded for this question.'}
+                      </p>
+                    </div>
                   )}
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Thank You Message */}
+          <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl p-8 text-center shadow-lg">
+            <div className="relative">
+              <h2 className="text-4xl md:text-5xl font-bold text-white mb-3">
+                Thank You!
+              </h2>
+              <p className="text-lg text-green-50">
+                Your speaking exam responses have been submitted
+              </p>
+              {transcribing && transcriptionProgress.total > 0 && (
+                <div className="mt-4 flex items-center justify-center gap-2 text-green-100">
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                  <span className="text-sm">Processing transcriptions... ({transcriptionProgress.total} responses)</span>
+                </div>
+              )}
+              {transcriptionError && (
+                <div className="mt-4 mx-auto max-w-lg bg-red-100/20 border border-red-200/50 rounded-lg px-4 py-3">
+                  <p className="text-sm text-red-100 mb-2">{transcriptionError}</p>
+                  <button
+                    onClick={() => {
+                      const answersNeedingTranscription = session?.speakingAnswers?.filter(
+                        (a: { audioUrl?: string | null; transcription?: string | null }) => a.audioUrl && !a.transcription
+                      ) || [];
+                      if (answersNeedingTranscription.length > 0) {
+                        setTranscriptionStarted(false);
+                        setTranscriptionError(null);
+                      }
+                    }}
+                    className="text-sm underline hover:no-underline text-white"
+                  >
+                    Click to retry
+                  </button>
+                </div>
+              )}
+              {transcriptionComplete && (
+                <div className="mt-4 flex items-center justify-center gap-2 text-white">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="text-sm">Transcriptions completed!</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -186,26 +320,6 @@ function SpeakingResultContent() {
                     className="w-full px-4 py-3 rounded-lg border border-blue-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
                     placeholder="Enter your AI code (e.g., AI-GRADER-2024)"
                   />
-                </div>
-
-                {/* AI Provider Selection */}
-                <div>
-                  <label className="block text-sm font-medium text-blue-900 mb-1">
-                    AI Provider
-                  </label>
-                  <select
-                    value={selectedProvider}
-                    onChange={(e) => setSelectedProvider(e.target.value as 'local' | 'openrouter')}
-                    className="w-full px-4 py-3 rounded-lg border border-blue-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
-                  >
-                    <option value="local">Local AI (Ollama/LM Studio)</option>
-                    <option value="openrouter">OpenRouter API</option>
-                  </select>
-                  <p className="text-xs text-blue-600 mt-1">
-                    {selectedProvider === 'local'
-                      ? 'Use local AI models running on your machine (GTX 5050 compatible)'
-                      : 'Use cloud-based AI models via OpenRouter API'}
-                  </p>
                 </div>
 
                 {/* Custom Prompt Selection (Optional) */}

@@ -1,6 +1,8 @@
+// Legacy types for old React app (not used in Next.js app)
+
 export interface Question {
   id: string;
-  timestamp: number; // Seconds into the video when the video should pause
+  timestamp: number;
   text: string;
 }
 
@@ -14,7 +16,7 @@ export interface TestScenario {
 
 export interface Answer {
   questionId: string;
-  audioBlob: Blob | null; // In a real app, this would be a URL to S3/Cloud storage
+  audioBlob: Blob | null;
   transcription: string;
   recordedAt: string;
 }
@@ -28,6 +30,3 @@ export interface StudentSession {
   completed: boolean;
   aiSummary?: string;
 }
-
-// Helper to simulate DB Delay
-export const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

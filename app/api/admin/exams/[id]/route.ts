@@ -71,8 +71,11 @@ export async function PUT(
       },
     });
 
+    // Use the existing exam type to determine which content to update
+    const examType = type || existingExam.type;
+
     // Handle speaking questions update
-    if (questions !== undefined && type === 'SPEAKING') {
+    if (questions !== undefined && existingExam.type === 'SPEAKING') {
       // Delete existing questions
       await prisma.speakingQuestion.deleteMany({
         where: { examId: id },
@@ -97,7 +100,7 @@ export async function PUT(
     }
 
     // Handle writing prompts update
-    if (writingPrompts !== undefined && type === 'WRITING') {
+    if (writingPrompts !== undefined && existingExam.type === 'WRITING') {
       // Delete existing prompts
       await prisma.writingPrompt.deleteMany({
         where: { examId: id },

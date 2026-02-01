@@ -119,14 +119,51 @@ export const initializeWhisper = async (model: WhisperModel = DEFAULT_MODEL): Pr
  * @returns Transcribed text
  */
 export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
+  // Validate audio blob
+  if (!audioBlob || audioBlob.size === 0) {
+    throw new Error('Audio blob is empty');
+  }
+
+  if (audioBlob.size < 1024) {
+    throw new Error('Audio file is too small (less than 1KB)');
+  }
+
+  if (audioBlob.size > 100 * 1024 * 1024) {
+    throw new Error('Audio file is too large (max 100MB)');
+  }
+
   try {
+    console.log('[Whisper] Starting transcription for audio blob:', {
+      size: audioBlob.size,
+      type: audioBlob.type,
+    });
+
     // Ensure pipeline is initialized
     const pipeline = await initializeWhisper();
+
+    if (!pipeline) {
+      throw new Error('Whisper pipeline not initialized');
+    }
 
     // Convert blob to audio context for processing
     const audioContext = new AudioContext({ sampleRate: 16000 });
     const arrayBuffer = await audioBlob.arrayBuffer();
+
+    // Validate array buffer
+    if (arrayBuffer.byteLength === 0) {
+      throw new Error('Audio data is empty after conversion');
+    }
+
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+    // Validate audio buffer
+    if (audioBuffer.duration === 0) {
+      throw new Error('Audio duration is 0 seconds');
+    }
+
+    if (audioBuffer.numberOfChannels === 0) {
+      throw new Error('No audio channels found');
+    }
 
     // Get audio data as Float32Array
     const audioData = audioBuffer.getChannelData(0);
@@ -143,10 +180,19 @@ export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
         const srcIndex = Math.floor(i * ratio);
         processedAudio[i] = audioData[srcIndex];
       }
+      console.log('[Whisper] Resampled audio from', audioBuffer.sampleRate, 'to', targetSampleRate);
+    }
+
+    // Check if audio has actual content (not silence)
+    const hasAudio = processedAudio.some(sample => Math.abs(sample) > 0.001);
+    if (!hasAudio) {
+      console.warn('[Whisper] Audio appears to be silent or empty');
     }
 
     // Run transcription
-    console.log('Transcribing audio...');
+    console.log('[Whisper] Running transcription pipeline...');
+    const startTime = Date.now();
+
     const result = await pipeline(processedAudio, {
       chunk_length_s: 30,
       stride_length_s: 5,
@@ -155,13 +201,32 @@ export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
       return_timestamps: false,
     });
 
+    const duration = Date.now() - startTime;
     const text = result?.text || '';
-    console.log('Transcription complete:', text);
+
+    console.log('[Whisper] Transcription complete in', duration, 'ms:', text);
+
+    if (!text || text.trim().length === 0) {
+      throw new Error('Transcription returned empty text');
+    }
+
     return text.trim();
 
   } catch (error) {
-    console.error('Whisper transcription error:', error);
-    throw new Error(`Transcription failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    console.error('[Whisper] Transcription error:', error);
+
+    // Provide more specific error messages
+    if (error instanceof Error) {
+      if (error.message.includes('EncodingFailed')) {
+        throw new Error('Audio encoding failed - the audio format may not be supported');
+      }
+      if (error.message.includes('decodeAudioData')) {
+        throw new Error('Failed to decode audio - the file may be corrupted or in an unsupported format');
+      }
+      throw new Error(`Transcription failed: ${error.message}`);
+    }
+
+    throw new Error('Transcription failed: Unknown error');
   }
 };
 

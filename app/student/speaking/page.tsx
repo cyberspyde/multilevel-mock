@@ -3,59 +3,28 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import SearchBar from '../../../components/SearchBar';
+import { MediaPlayer } from '../../../components/MediaPlayer';
 
 type Step = 'select' | 'register' | 'unlock' | 'exam';
 
-// Dynamic import for Whisper (browser-only)
-let clientTranscribeAudio: ((audioBlob: Blob) => Promise<string>) | null = null;
+// Helper function to transcribe audio using server-side Whisper
+async function transcribeAudioServer(audioBlob: Blob): Promise<string> {
+  const formData = new FormData();
+  formData.append('file', audioBlob, 'recording.webm');
 
-if (typeof window !== 'undefined') {
-  import('../../../services/whisper').then((module) => {
-    clientTranscribeAudio = module.transcribeAudio;
+  const res = await fetch('/api/whisper', {
+    method: 'POST',
+    body: formData,
   });
-}
 
-// Helper function to transcribe audio based on server config
-async function transcribeAudioWithMode(audioBlob: Blob): Promise<string> {
-  try {
-    // Check whisper mode from server
-    const modeRes = await fetch('/api/whisper');
-    const { mode } = await modeRes.json();
-
-    if (mode === 'server') {
-      // Use server-side transcription
-      const formData = new FormData();
-      formData.append('audio', audioBlob, 'recording.webm');
-
-      const res = await fetch('/api/whisper', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const error = await res.json();
-        console.error('Server transcription failed:', error);
-        throw new Error(error.error || 'Server transcription failed');
-      }
-
-      const data = await res.json();
-      return data.transcription || '';
-    } else {
-      // Use client-side transcription
-      if (!clientTranscribeAudio) {
-        throw new Error('Client-side Whisper not loaded');
-      }
-      return await clientTranscribeAudio(audioBlob);
-    }
-  } catch (error) {
-    console.error('Transcription error:', error);
-    // Fallback to client-side if server fails
-    if (clientTranscribeAudio) {
-      console.log('Falling back to client-side transcription');
-      return await clientTranscribeAudio(audioBlob);
-    }
-    throw error;
+  if (!res.ok) {
+    const error = await res.json();
+    console.error('Server transcription failed:', error);
+    throw new Error(error.error || 'Server transcription failed');
   }
+
+  const data = await res.json();
+  return data.transcription || '';
 }
 
 export default function SpeakingExamPage() {
@@ -165,15 +134,18 @@ export default function SpeakingExamPage() {
   return (
     <div className="min-h-screen">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
+      <header className="glass sticky top-0 z-10 border-b border-slate-200/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link href="/" className="font-bold text-xl text-gray-900">
+          <Link href="/" className="font-bold text-xl bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
             Bestcenter Multilevel Mock
           </Link>
           <Link
             href="/"
-            className="text-gray-500 hover:text-gray-800 text-sm"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-all"
           >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
             Back to Home
           </Link>
         </div>
@@ -182,12 +154,17 @@ export default function SpeakingExamPage() {
       {/* Main Content */}
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {step === 'select' && (
-          <div className="animate-fade-in">
-            <h1 className="text-3xl font-bold text-gray-900 mb-6">
-              Select a Speaking Mock Exam
-            </h1>
+          <div className="animate-fade-in-up">
+            <div className="mb-8">
+              <h1 className="text-4xl font-bold text-slate-900 mb-2">
+                Speaking Mock Exams
+              </h1>
+              <p className="text-slate-500 text-lg">
+                Select an exam to begin your speaking assessment
+              </p>
+            </div>
 
-            <div className="mb-6">
+            <div className="mb-8">
               <SearchBar
                 value={searchQuery}
                 onChange={setSearchQuery}
@@ -197,42 +174,60 @@ export default function SpeakingExamPage() {
             </div>
 
             {isLoadingExams ? (
-              <div className="flex flex-col items-center justify-center py-16 bg-white rounded-2xl border border-gray-200">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-                <p className="text-gray-600">Loading exams...</p>
+              <div className="flex flex-col items-center justify-center py-20 bg-white rounded-3xl border border-slate-200 shadow-soft">
+                <div className="relative">
+                  <div className="animate-spin rounded-full h-16 w-16 border-4 border-slate-200"></div>
+                  <div className="animate-spin rounded-full h-16 w-16 border-4 border-t-blue-600 absolute top-0 left-0 border-r-transparent border-b-transparent"></div>
+                </div>
+                <p className="text-slate-600 mt-6 font-medium">Loading exams...</p>
               </div>
             ) : filteredExams.length === 0 ? (
-              <div className="text-center py-12 bg-white rounded-2xl border border-gray-200">
-                <p className="text-gray-500">
+              <div className="text-center py-16 bg-white rounded-3xl border border-slate-200 shadow-soft">
+                <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-10 h-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+                <p className="text-slate-500 text-lg">
                   {searchQuery ? 'No exams match your search.' : 'No speaking exams available.'}
                 </p>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="grid gap-4">
                 {filteredExams.map((exam) => (
                   <button
                     key={exam.id}
                     onClick={() => handleExamSelect(exam)}
-                    className="w-full text-left bg-white p-6 rounded-2xl border border-gray-200 hover:shadow-lg hover:border-blue-300 transition-all group"
+                    className="group text-left bg-white p-6 rounded-2xl border border-slate-200 hover:shadow-soft-lg hover:border-blue-300 transition-all duration-300 relative overflow-hidden"
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="absolute inset-0 bg-gradient-to-r from-blue-50 to-indigo-50 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                    <div className="relative flex items-center justify-between">
                       <div>
-                        <h3 className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
-                          {exam.title}
-                        </h3>
-                        <p className="text-gray-500 mt-1">{exam.description}</p>
-                        <p className="text-sm text-gray-400 mt-2">
-                          {exam._count.questions} questions
-                        </p>
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="text-xl font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
+                            {exam.title}
+                          </h3>
+                          <span className="badge bg-blue-100 text-blue-700">
+                            {exam._count.questions} {exam._count.questions === 1 ? 'question' : 'questions'}
+                          </span>
+                        </div>
+                        <p className="text-slate-500">{exam.description}</p>
                       </div>
-                      <svg
-                        className="w-6 h-6 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-medium text-blue-600 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-x-2 group-hover:translate-x-0">
+                          Start
+                        </span>
+                        <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center group-hover:bg-blue-600 transition-all duration-300">
+                          <svg
+                            className="w-5 h-5 text-blue-600 group-hover:text-white transition-colors duration-300"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </div>
+                      </div>
                     </div>
                   </button>
                 ))}
@@ -242,10 +237,10 @@ export default function SpeakingExamPage() {
         )}
 
         {step === 'register' && (
-          <div className="animate-fade-in">
+          <div className="animate-scale-in max-w-md mx-auto">
             <button
               onClick={() => setStep('select')}
-              className="text-gray-500 hover:text-gray-800 text-sm mb-6 flex items-center gap-2"
+              className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-800 text-sm mb-6 font-medium transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -253,38 +248,51 @@ export default function SpeakingExamPage() {
               Back to exams
             </button>
 
-            <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-200 max-w-md mx-auto">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">
-                Student Registration
-              </h2>
+            <div className="bg-white p-8 rounded-3xl shadow-soft-lg border border-slate-200">
+              <div className="mb-6">
+                <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-blue-500/30">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+                <h2 className="text-2xl font-bold text-slate-900">
+                  Student Registration
+                </h2>
+                <p className="text-slate-500 mt-1">Enter your details to continue</p>
+              </div>
 
-              <div className="mb-6 p-4 bg-blue-50 rounded-xl border border-blue-100">
-                <p className="text-sm font-medium text-blue-900">Selected Exam</p>
+              <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-100">
+                <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Selected Exam</p>
                 <p className="text-lg font-bold text-blue-900 mt-1">{selectedExam.title}</p>
               </div>
 
-              <form onSubmit={handleRegister} className="space-y-6">
+              <form onSubmit={handleRegister} className="space-y-5">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
                     Full Name
                   </label>
                   <input
                     type="text"
                     value={studentName}
                     onChange={(e) => setStudentName(e.target.value)}
-                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-slate-900 placeholder:text-slate-400"
                     placeholder="Jane Doe"
                     autoFocus
                   />
                 </div>
 
                 {error && (
-                  <p className="text-red-600 text-sm">{error}</p>
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2">
+                    <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <p className="text-red-600 text-sm">{error}</p>
+                  </div>
                 )}
 
                 <button
                   type="submit"
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-colors"
+                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-3.5 px-6 rounded-xl transition-all shadow-lg shadow-blue-500/30 hover:shadow-blue-500/40"
                 >
                   Continue
                 </button>
@@ -294,10 +302,10 @@ export default function SpeakingExamPage() {
         )}
 
         {step === 'unlock' && (
-          <div className="animate-fade-in">
+          <div className="animate-scale-in max-w-md mx-auto">
             <button
               onClick={() => setStep('register')}
-              className="text-gray-500 hover:text-gray-800 text-sm mb-6 flex items-center gap-2"
+              className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-800 text-sm mb-6 font-medium transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -305,38 +313,41 @@ export default function SpeakingExamPage() {
               Back
             </button>
 
-            <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-200 max-w-md mx-auto">
-              <div className="mb-6 text-center">
-                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="bg-white p-8 rounded-3xl shadow-soft-lg border border-slate-200">
+              <div className="mb-8 text-center">
+                <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg shadow-indigo-500/30">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
                 </div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                <h2 className="text-2xl font-bold text-slate-900 mb-2">
                   Enter Exam Code
                 </h2>
-                <p className="text-gray-500">
-                  Enter the unlock code to start {selectedExam.title}
+                <p className="text-slate-500">
+                  Enter the unlock code to start <span className="font-semibold text-slate-700">{selectedExam.title}</span>
                 </p>
               </div>
 
-              <form onSubmit={handleUnlock} className="space-y-6">
+              <form onSubmit={handleUnlock} className="space-y-5">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
                     Unlock Code
                   </label>
                   <input
                     type="text"
                     value={unlockCode}
-                    onChange={(e) => setUnlockCode(e.target.value)}
-                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-center text-lg font-mono tracking-wider"
+                    onChange={(e) => setUnlockCode(e.target.value.toUpperCase())}
+                    className="w-full px-4 py-3.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-center text-lg font-mono tracking-widest uppercase text-slate-900 placeholder:text-slate-300 transition-all"
                     placeholder="ENTER-CODE"
                     autoFocus
                   />
                 </div>
 
                 {error && (
-                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center justify-center gap-2">
+                    <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
                     <p className="text-red-600 text-sm text-center">{error}</p>
                   </div>
                 )}
@@ -344,9 +355,17 @@ export default function SpeakingExamPage() {
                 <button
                   type="submit"
                   disabled={loading || !unlockCode.trim()}
-                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors"
+                  className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed text-white font-semibold py-3.5 px-6 rounded-xl transition-all shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/40"
                 >
-                  {loading ? 'Verifying...' : 'Start Exam'}
+                  {loading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Verifying...
+                    </span>
+                  ) : 'Start Exam'}
                 </button>
               </form>
             </div>
@@ -371,10 +390,13 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
-  const [phase, setPhase] = useState<'reading' | 'answering' | 'idle'>('idle');
+  const [phase, setPhase] = useState<'reading' | 'watching' | 'answering' | 'idle'>('idle');
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [questionStartTime, setQuestionStartTime] = useState<Date | null>(null);
-  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  const [showRetry, setShowRetry] = useState(false);
+  const [recordingActive, setRecordingActive] = useState(false); // Visual feedback for active recording
+  const [mediaPlayed, setMediaPlayed] = useState(false); // Track if media has been played
   const recordingStartTimeRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -383,6 +405,7 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     if (exam && exam.questions && exam.questions.length > 0) {
+      setMediaPlayed(false);
       startReadingPhase();
     }
   }, [exam, currentQuestionIndex]);
@@ -394,7 +417,19 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
       setTimeRemaining(prev => {
         if (prev <= 1) {
           if (phase === 'reading') {
-            startAnsweringPhase();
+            // After reading time, check if we need to play media
+            const currentQuestion = exam?.questions[currentQuestionIndex];
+            const hasMedia = currentQuestion?.format === 'VIDEO' ||
+                            (currentQuestion?.format === 'AUDIO_ONLY' && currentQuestion?.mediaUrl);
+
+            if (hasMedia && !mediaPlayed) {
+              // Transition to watching phase - media will auto-play
+              setPhase('watching');
+              setTimeRemaining(0); // No timer during media playback
+            } else {
+              // No media, go directly to answering
+              startAnsweringPhase();
+            }
           } else if (phase === 'answering' && isRecording) {
             stopRecording();
           }
@@ -405,7 +440,13 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [timeRemaining, phase, isRecording]);
+  }, [timeRemaining, phase, isRecording, exam, currentQuestionIndex, mediaPlayed]);
+
+  const handleMediaEnded = () => {
+    setMediaPlayed(true);
+    // After media ends, start answering phase (recording)
+    startAnsweringPhase();
+  };
 
   const fetchExam = async () => {
     setIsLoadingExam(true);
@@ -448,6 +489,9 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
     setTimeRemaining(readingTime);
     setQuestionStartTime(new Date());
     setIsRecording(false);
+    setRecordingError(null);
+    setShowRetry(false);
+    setRecordingActive(false);
   };
 
   const startAnsweringPhase = () => {
@@ -461,37 +505,124 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
   };
 
   const startRecording = async () => {
+    setRecordingError(null);
+    setShowRetry(false);
+
     try {
+      // Check if mediaDevices is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Microphone access is not supported in this browser. Please try using Chrome, Firefox, or Edge.');
+      }
+
+      // Check microphone permission
+      try {
+        const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        if (permissionStatus.state === 'denied') {
+          throw new Error('Microphone permission has been denied. Please allow microphone access in your browser settings and refresh the page.');
+        }
+      } catch {
+        // Permission query might not be supported in all browsers, continue
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+
+      // Check if we got actual audio tracks
+      if (stream.getAudioTracks().length === 0) {
+        throw new Error('No microphone detected. Please connect a microphone and try again.');
+      }
+
+      // Determine supported MIME type for recording
+      let mimeType = 'audio/webm';
+      const types = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/ogg',
+        'audio/mp4',
+        'audio/mp3'
+      ];
+
+      for (const type of types) {
+        if (MediaRecorder.isTypeSupported(type)) {
+          mimeType = type;
+          console.log('[Recording] Using MIME type:', mimeType);
+          break;
+        }
+      }
+
+      const options = mimeType ? { mimeType } : undefined;
+      const recorder = new MediaRecorder(stream, options);
       const chunks: Blob[] = [];
 
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+          setRecordingActive(true); // Visual feedback that recording is working
+        }
       };
 
       recorder.onstop = async () => {
-        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+        // Use the actual recorded MIME type or default to webm
+        const recordedMimeType = mimeType || 'audio/webm';
+        const audioBlob = new Blob(chunks, { type: recordedMimeType });
         const duration = recordingStartTimeRef.current ? Math.round((Date.now() - recordingStartTimeRef.current) / 1000) : 0;
+
+        console.log('[Recording] Stopped. Blob size:', audioBlob.size, 'bytes, MIME type:', recordedMimeType);
+
+        // Validate the recording has actual data
+        if (audioBlob.size < 1000) {
+          console.warn('[Recording] Audio blob is very small, may be empty');
+        }
+
         await saveAnswer(audioBlob, duration);
         stream.getTracks().forEach(track => track.stop());
+        setRecordingActive(false);
       };
 
-      recorder.start();
+      recorder.onerror = (event) => {
+        console.error('MediaRecorder error:', event);
+        setRecordingError('Recording error occurred. Please try again.');
+        setShowRetry(true);
+        setIsRecording(false);
+      };
+
+      // Start recording with 100ms timeslice for more reliable data capture
+      recorder.start(100);
       recordingStartTimeRef.current = Date.now();
       setMediaRecorder(recorder);
       setAudioChunks(chunks);
       setIsRecording(true);
-    } catch (err) {
-      console.error('Failed to start recording:', err);
-      alert('Microphone access is required for this exam.');
-      // If can't record, move to next after answering time
-      const currentQuestion = exam?.questions[currentQuestionIndex];
-      const answeringTime = currentQuestion?.answeringTimeLimit || 30;
+
+      // Verify recording is active after a short delay
       setTimeout(() => {
-        saveAnswer(null);
-      }, answeringTime * 1000);
+        if (recorder.state === 'inactive') {
+          setRecordingError('Recording failed to start. Please check your microphone and try again.');
+          setShowRetry(true);
+          setIsRecording(false);
+        }
+      }, 1000);
+
+    } catch (err: any) {
+      console.error('Failed to start recording:', err);
+      const errorMessage = err.message || 'Failed to access microphone. Please ensure you have granted permission.';
+      setRecordingError(errorMessage);
+      setShowRetry(true);
+      setIsRecording(false);
+      setRecordingActive(false);
     }
+  };
+
+  const handleRetryRecording = () => {
+    setRecordingError(null);
+    setShowRetry(false);
+    startRecording();
+  };
+
+  const handleSkipQuestion = async () => {
+    // User chose to skip after recording failed
+    setRecordingError(null);
+    setShowRetry(false);
+    await saveAnswer(null);
   };
 
   const stopRecording = () => {
@@ -509,60 +640,108 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
       setPhase('idle');
       setIsProcessing(true);
 
-      let transcription = null;
       let audioUrl: string | null = null;
 
-      // Transcribe and upload audio if available
+      // Upload audio if available (transcription happens AFTER exam completes)
       if (audioBlob) {
-        // Step 1: Transcribe audio (uses server or client based on config)
-        try {
-          setIsTranscribing(true);
-          transcription = await transcribeAudioWithMode(audioBlob);
-          console.log('Transcription:', transcription);
-        } catch (err) {
-          console.error('Transcription failed:', err);
-          // Continue without transcription
-        } finally {
-          setIsTranscribing(false);
-        }
+        // Validate recording has actual data
+        if (audioBlob.size < 500) {
+          console.warn('[SaveAnswer] Audio blob too small (< 500 bytes), skipping upload');
+          // Still save the answer but without audio URL
+        } else {
+          // Determine file extension based on MIME type
+          let fileExt = 'webm';
+          const mimeType = audioBlob.type.toLowerCase();
 
-        // Step 2: Upload audio to storage
-        try {
-          const formData = new FormData();
-          formData.append('file', audioBlob, `answer-${sessionId}-${currentQuestion.id}.webm`);
-
-          const uploadRes = await fetch('/api/upload', {
-            method: 'POST',
-            body: formData,
-          });
-
-          if (uploadRes.ok) {
-            const uploadData = await uploadRes.json();
-            audioUrl = uploadData.url;
-            console.log('Audio uploaded successfully:', audioUrl);
-          } else {
-            const uploadError = await uploadRes.json();
-            console.warn('Failed to upload audio:', uploadError.error);
-            // Continue with transcription even if audio upload fails
+          if (mimeType.includes('ogg')) {
+            fileExt = 'ogg';
+          } else if (mimeType.includes('mp4') || mimeType.includes('m4a')) {
+            fileExt = 'm4a';
+          } else if (mimeType.includes('mp3')) {
+            fileExt = 'mp3';
+          } else if (mimeType.includes('wav')) {
+            fileExt = 'wav';
           }
-        } catch (uploadErr) {
-          console.error('Audio upload error:', uploadErr);
-          // Continue with transcription even if audio upload fails
+
+          const filename = `answer-${sessionId}-${currentQuestion.id}.${fileExt}`;
+          console.log('[SaveAnswer] Uploading audio:', filename, 'Size:', audioBlob.size, 'Type:', mimeType);
+
+          let uploadSuccess = false;
+          let retryCount = 0;
+          const maxRetries = 3;
+
+          while (!uploadSuccess && retryCount < maxRetries) {
+            try {
+              const formData = new FormData();
+              formData.append('file', audioBlob, filename);
+
+              // Use XMLHttpRequest for better timeout control and retry support
+              await new Promise<void>((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+
+                xhr.addEventListener('load', () => {
+                  if (xhr.status === 200) {
+                    const uploadData = JSON.parse(xhr.responseText);
+                    audioUrl = uploadData.url;
+                    console.log('[SaveAnswer] Audio uploaded successfully:', audioUrl);
+                    uploadSuccess = true;
+                    resolve();
+                  } else {
+                    let uploadError;
+                    try {
+                      uploadError = JSON.parse(xhr.responseText);
+                    } catch {
+                      uploadError = { error: `Upload failed with status ${xhr.status}` };
+                    }
+                    reject(new Error(uploadError.error || 'Upload failed'));
+                  }
+                });
+
+                xhr.addEventListener('error', () => {
+                  reject(new Error('Network error during upload'));
+                });
+
+                xhr.addEventListener('timeout', () => {
+                  reject(new Error('Upload timed out'));
+                });
+
+                xhr.open('POST', '/api/upload');
+                xhr.timeout = 60000; // 1 minute timeout
+                xhr.send(formData);
+              });
+
+              break; // Success, exit retry loop
+            } catch (uploadErr: any) {
+              retryCount++;
+              console.error(`[SaveAnswer] Upload attempt ${retryCount} failed:`, uploadErr.message);
+
+              if (retryCount < maxRetries) {
+                // Wait before retry with exponential backoff
+                await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+              } else {
+                console.warn('[SaveAnswer] All upload attempts failed, continuing without audio file');
+              }
+            }
+          }
         }
       }
 
-      // Save answer with audio URL and transcription
-      await fetch('/api/speaking/answer', {
+      // Save answer with audio URL (transcription will be done after exam)
+      const answerResponse = await fetch('/api/speaking/answer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId,
           questionId: currentQuestion.id,
           audioUrl,
-          transcription,
           duration,
         }),
       });
+
+      if (!answerResponse.ok) {
+        const answerError = await answerResponse.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(answerError.error || 'Failed to save answer');
+      }
 
       setIsProcessing(false);
 
@@ -640,7 +819,7 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
       </div>
 
       {/* Timer Display */}
-      {phase !== 'idle' && (
+      {phase !== 'idle' && phase !== 'watching' && (
         <div className="bg-gradient-to-r from-blue-50 to-purple-50 px-8 py-6 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <div>
@@ -678,6 +857,27 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
         </div>
       )}
 
+      {/* Watching Phase Header */}
+      {phase === 'watching' && (
+        <div className="bg-gradient-to-r from-indigo-50 to-blue-50 px-8 py-6 border-b border-gray-200">
+          <div className="flex items-center justify-center">
+            <div className="text-center">
+              <p className="text-sm font-medium text-gray-600 uppercase tracking-wide">
+                {currentQuestion.format === 'VIDEO' ? '🎬 Watching Video' : '🎧 Listening to Audio'}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                {currentQuestion.format === 'VIDEO'
+                  ? 'Pay attention to the video content'
+                  : 'Listen carefully to the audio'}
+              </p>
+              <p className="text-sm text-indigo-600 mt-2 font-medium">
+                Recording will start automatically when it ends
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Question Content */}
       <div className="p-8">
         {/* Format-specific display */}
@@ -708,13 +908,30 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
           </div>
         )}
 
-        {currentQuestion.format === 'VIDEO' && currentQuestion.mediaUrl && (
+        {currentQuestion.format === 'VIDEO' && (
           <div className="mb-8">
-            <video
-              src={currentQuestion.mediaUrl}
-              className="w-full rounded-lg mb-4"
-              controls
-            />
+            {currentQuestion.mediaUrl ? (
+              phase === 'watching' ? (
+                <MediaPlayer
+                  src={currentQuestion.mediaUrl}
+                  type="video"
+                  onEnded={handleMediaEnded}
+                  autoPlay={true}
+                  className="mb-4"
+                />
+              ) : (
+                <div className="bg-slate-100 rounded-lg p-6 mb-4 text-center border border-slate-200">
+                  <p className="text-slate-600 font-medium">
+                    {phase === 'reading' ? 'Video will play after reading time' : 'Video finished'}
+                  </p>
+                </div>
+              )
+            ) : (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-4 text-center">
+                <p className="text-red-600 font-medium">Video file not available</p>
+                <p className="text-red-500 text-sm mt-1">Please contact your instructor</p>
+              </div>
+            )}
             <h3 className="text-2xl font-semibold text-gray-900">
               {currentQuestion.text}
             </h3>
@@ -724,13 +941,30 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
           </div>
         )}
 
-        {currentQuestion.format === 'AUDIO_ONLY' && currentQuestion.mediaUrl && (
+        {currentQuestion.format === 'AUDIO_ONLY' && (
           <div className="mb-8">
-            <audio
-              src={currentQuestion.mediaUrl}
-              controls
-              className="w-full mb-4"
-            />
+            {currentQuestion.mediaUrl ? (
+              phase === 'watching' ? (
+                <MediaPlayer
+                  src={currentQuestion.mediaUrl}
+                  type="audio"
+                  onEnded={handleMediaEnded}
+                  autoPlay={true}
+                  className="mb-4"
+                />
+              ) : (
+                <div className="bg-slate-100 rounded-lg p-6 mb-4 text-center border border-slate-200">
+                  <p className="text-slate-600 font-medium">
+                    {phase === 'reading' ? 'Audio will play after reading time' : 'Audio finished'}
+                  </p>
+                </div>
+              )
+            ) : (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-4 text-center">
+                <p className="text-red-600 font-medium">Audio file not available</p>
+                <p className="text-red-500 text-sm mt-1">Please contact your instructor</p>
+              </div>
+            )}
             <h3 className="text-2xl font-semibold text-gray-900">
               {currentQuestion.text}
             </h3>
@@ -742,13 +976,7 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
 
         {/* Recording Interface */}
         <div className="bg-gray-50 rounded-xl p-8 border border-gray-200 flex flex-col items-center justify-center min-h-[200px]">
-          {isTranscribing ? (
-            <div className="text-center py-4">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Transcribing audio...</p>
-              <p className="text-xs text-gray-500 mt-2">This may take a moment</p>
-            </div>
-          ) : isProcessing ? (
+          {isProcessing ? (
             <div className="text-center py-4">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
               <p className="text-gray-600">Saving your response...</p>
@@ -761,15 +989,70 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
                 </svg>
               </div>
               <p className="text-lg font-semibold text-gray-900">Read the question carefully</p>
-              <p className="text-sm text-gray-500 mt-2">Recording will start automatically</p>
+              <p className="text-sm text-gray-500 mt-2">
+                {(currentQuestion.format === 'VIDEO' || currentQuestion.format === 'AUDIO_ONLY') && currentQuestion.mediaUrl
+                  ? 'Media will play automatically, then recording will start'
+                  : 'Recording will start automatically'}
+              </p>
+            </div>
+          ) : phase === 'watching' ? (
+            <div className="text-center py-8">
+              <div className="w-20 h-20 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                {currentQuestion.format === 'VIDEO' ? (
+                  <svg className="w-10 h-10 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                ) : (
+                  <svg className="w-10 h-10 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                  </svg>
+                )}
+              </div>
+              <p className="text-lg font-semibold text-gray-900">
+                {currentQuestion.format === 'VIDEO' ? 'Watching video...' : 'Listening to audio...'}
+              </p>
+              <p className="text-sm text-gray-500 mt-2">Recording will start automatically when it ends</p>
+            </div>
+          ) : recordingError ? (
+            <div className="text-center py-6 max-w-md">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-bold text-red-900 mb-2">Recording Failed</h3>
+              <p className="text-sm text-red-700 mb-6">{recordingError}</p>
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={handleRetryRecording}
+                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+                >
+                  Try Again
+                </button>
+                <button
+                  onClick={handleSkipQuestion}
+                  className="px-6 py-2 border border-gray-300 text-gray-700 hover:bg-gray-100 font-medium rounded-lg transition-colors"
+                >
+                  Skip Question
+                </button>
+              </div>
             </div>
           ) : (
             <>
               {isRecording && (
                 <div className="flex flex-col items-center gap-4">
                   <div className="animate-pulse flex items-center gap-2 text-red-600 font-bold text-xl">
-                    <div className="w-4 h-4 bg-red-600 rounded-full"></div>
+                    <div className="w-4 h-4 bg-red-600 rounded-full animate-ping"></div>
                     Recording...
+                    {recordingActive && (
+                      <span className="text-sm text-green-600 font-normal flex items-center gap-1">
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                        Active
+                      </span>
+                    )}
                   </div>
                   <button
                     onClick={stopRecording}

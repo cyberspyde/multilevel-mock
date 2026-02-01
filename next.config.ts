@@ -15,6 +15,15 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        // Apply to media files in uploads directory for streaming support
+        source: "/uploads/:path*",
+        headers: [
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Accept-Ranges", value: "bytes" },
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+      {
         // Apply to all other routes
         source: "/:path*",
         headers: [

@@ -3,17 +3,6 @@ import { prisma } from '@/lib/prisma';
 import { generateContentWithFallback, type AIProvider } from '@/services/ai-provider';
 import type { ExamSession, SpeakingAnswer, WritingAnswer } from '@prisma/client';
 
-// User-friendly error messages
-const ERROR_MESSAGES = {
-  MISSING_PARAMS: 'Please provide both sessionId and aiCode.',
-  INVALID_CODE: 'The AI code you entered is not valid. Please check and try again.',
-  INACTIVE_CODE: 'This AI code has been deactivated. Please contact your administrator.',
-  MAX_USES: 'This AI code has reached its maximum number of uses. Please contact your administrator.',
-  SESSION_NOT_FOUND: 'Could not find the exam session. Please complete your exam first.',
-  DATABASE_ERROR: 'Database error. Please try again later.',
-  AI_UNAVAILABLE: 'AI grading service is currently unavailable. Using fallback evaluation.',
-};
-
 type SessionWithAnswers = ExamSession & {
   exam: { type: string; title: string; description: string };
   speakingAnswers?: Array<Pick<SpeakingAnswer, 'transcription' | 'duration'> & { question?: { text?: string } }>;
@@ -23,52 +12,37 @@ type SessionWithAnswers = ExamSession & {
 type WpmStats = { totalWords: number; totalDuration: number; wpm: number };
 type ParsedAIResponse = { summary: string; feedback: string };
 
-// POST /api/ai/grade - Process AI grading for a session
-export async function POST(request: NextRequest) {
+// POST /api/admin/sessions/[id]/ai-grade - Admin-triggered AI grading (no code required)
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
+    const { id: sessionId } = await params;
     const body = await request.json();
-    const { sessionId, aiCode, promptId } = body;
+    const { provider = 'local', promptId } = body;
 
-    if (!sessionId || !aiCode) {
-      return NextResponse.json(
-        { error: ERROR_MESSAGES.MISSING_PARAMS },
-        { status: 400 }
-      );
-    }
+    // Fetch session with answers
+    const session = await prisma.examSession.findUnique({
+      where: { id: sessionId },
+      include: {
+        exam: true,
+        speakingAnswers: { include: { question: true } },
+        writingAnswers: { include: { prompt: true } },
+      },
+    });
 
-    // Verify AI code and get session in parallel
-    const [aiCodeRecord, session] = await Promise.all([
-      prisma.aICode.findUnique({ where: { code: aiCode } }),
-      prisma.examSession.findUnique({
-        where: { id: sessionId },
-        include: {
-          exam: true,
-          speakingAnswers: { include: { question: true } },
-          writingAnswers: { include: { prompt: true } },
-        },
-      }),
-    ]);
-
-    if (!aiCodeRecord) {
-      return NextResponse.json({ error: ERROR_MESSAGES.INVALID_CODE }, { status: 401 });
-    }
-    if (!aiCodeRecord.isActive) {
-      return NextResponse.json({ error: ERROR_MESSAGES.INACTIVE_CODE }, { status: 401 });
-    }
-    if (aiCodeRecord.maxUses && aiCodeRecord.useCount >= aiCodeRecord.maxUses) {
-      return NextResponse.json({ error: ERROR_MESSAGES.MAX_USES }, { status: 401 });
-    }
     if (!session) {
-      return NextResponse.json({ error: ERROR_MESSAGES.SESSION_NOT_FOUND }, { status: 404 });
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
     // Check if already AI graded
     if (session.isAiGraded) {
       const existingGrade = await prisma.aIGrade.findFirst({ where: { sessionId } });
-      return NextResponse.json({ success: true, grade: existingGrade });
+      return NextResponse.json({ success: true, alreadyGraded: true, grade: existingGrade });
     }
 
-    // Get custom prompt and provider config in parallel
+    // Get custom prompt and model config in parallel
     const [promptRecord, modelConfig, allConfig] = await Promise.all([
       promptId ? prisma.aIPrompt.findUnique({ where: { id: promptId } }) : null,
       prisma.adminConfig.findUnique({ where: { key: 'ai_provider' } }),
@@ -76,8 +50,7 @@ export async function POST(request: NextRequest) {
     ]);
 
     const customPrompt = promptRecord?.isActive ? promptRecord.prompt : null;
-    // Always use local AI for student grading
-    const provider: AIProvider = 'local';
+    const aiProvider: AIProvider = (provider as AIProvider) || 'local';
 
     const dbConfig: Record<string, string> = {};
     allConfig.forEach((c) => { dbConfig[c.key] = c.value; });
@@ -98,7 +71,7 @@ export async function POST(request: NextRequest) {
     let errorMessage: string | undefined;
 
     try {
-      const result = await generateContentWithFallback(prompt, provider, dbConfig);
+      const result = await generateContentWithFallback(prompt, aiProvider, dbConfig);
       const aiResponse = parseAIResponse(result.content);
 
       // Validate AI response
@@ -136,17 +109,14 @@ export async function POST(request: NextRequest) {
             timestamp: new Date().toISOString(),
             wpm: wpmStats.wpm,
             duration: wpmStats.totalDuration,
+            gradedBy: 'admin',
             ...(errorMessage && { error: errorMessage }),
           },
         },
       }),
       prisma.examSession.update({
         where: { id: sessionId },
-        data: { isAiGraded: true, aiCodeUsed: aiCode },
-      }),
-      prisma.aICode.update({
-        where: { id: aiCodeRecord.id },
-        data: { useCount: { increment: 1 } },
+        data: { isAiGraded: true },
       }),
     ]);
 
@@ -158,8 +128,12 @@ export async function POST(request: NextRequest) {
       ...(errorMessage && { warning: 'AI service unavailable, using fallback evaluation' }),
     });
 
-  } catch {
-    return NextResponse.json({ error: 'Failed to process AI grading' }, { status: 500 });
+  } catch (error) {
+    console.error('Admin AI grading error:', error);
+    return NextResponse.json(
+      { error: 'Failed to process AI grading' },
+      { status: 500 }
+    );
   }
 }
 
@@ -179,9 +153,6 @@ function calculateWpmStats(session: SessionWithAnswers): WpmStats {
   return stats;
 }
 
-/**
- * Apply custom prompt template to the session data
- */
 function applyCustomPrompt(customPrompt: string, session: SessionWithAnswers): string {
   const examType = session.exam.type;
   let answers = '';
@@ -203,7 +174,6 @@ function applyCustomPrompt(customPrompt: string, session: SessionWithAnswers): s
     }).join('\n\n');
   }
 
-  // Replace placeholders in custom prompt
   return customPrompt
     .replace(/{studentName}/g, session.studentName)
     .replace(/{examTitle}/g, session.exam.title)
@@ -214,9 +184,6 @@ function applyCustomPrompt(customPrompt: string, session: SessionWithAnswers): s
     .replace(/{exam_type}/g, examType);
 }
 
-/**
- * Build the grading prompt for the AI
- */
 function buildGradingPrompt(session: SessionWithAnswers, wpmStats?: WpmStats): string {
   const examType = session.exam.type;
   const isWriting = examType === 'WRITING';
@@ -232,13 +199,11 @@ Type: ${examType}
 
 `;
 
-  // ===== CONTENT SECTION =====
   const speakingAnswers = session.speakingAnswers;
   const writingAnswers = session.writingAnswers;
 
   if (isSpeaking && speakingAnswers && speakingAnswers.length > 0) {
     prompt += `SPEAKING RESPONSES:\n\n`;
-
     speakingAnswers.forEach((answer, index) => {
       prompt += `Question ${index + 1}: ${(answer as { question?: { text?: string } }).question?.text || 'Unknown'}\n`;
       prompt += `Response: "${(answer as { transcription?: string }).transcription}"\n`;
@@ -256,7 +221,6 @@ Type: ${examType}
     }
   } else if (isWriting && writingAnswers && writingAnswers.length > 0) {
     prompt += `WRITING RESPONSES:\n\n`;
-
     writingAnswers.forEach((answer, index) => {
       prompt += `Task ${index + 1}: ${(answer as { prompt?: { prompt?: string } }).prompt?.prompt || 'Unknown'}\n`;
       prompt += `Word Count: ${(answer as { wordCount: number }).wordCount} words\n`;
@@ -264,14 +228,12 @@ Type: ${examType}
     });
   }
 
-  // ===== EVALUATION FRAMEWORK =====
   prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EVALUATION FRAMEWORK
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 `;
 
-  // Assessment criteria based on type
   if (isWriting) {
     const totalWords = session.writingAnswers?.reduce((sum: number, a: any) => sum + a.wordCount, 0) || 0;
     const taskCount = session.writingAnswers?.length || 1;
@@ -397,7 +359,6 @@ Check if clarity and coherence are maintained at this pace.
     }
   }
 
-  // ===== OUTPUT FORMAT =====
   prompt += `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 REQUIRED OUTPUT FORMAT
@@ -468,11 +429,7 @@ REMEMBER: Your feedback should help students understand both what they did well 
   return prompt;
 }
 
-/**
- * Parse AI response to extract summary and feedback
- */
 function parseAIResponse(response: string): { summary: string; feedback: string } {
-  // Try to extract OVERALL_PERFORMANCE and the rest (new format)
   const overallMatch = response.match(/OVERALL_PERFORMANCE:\s*([\s\S]*?)(?=\nCRITERION_SCORES:|STRENGTHS:|$)/i);
   const strengthsMatch = response.match(/STRENGTHS:\s*([\s\S]*?)(?=\nAREAS_FOR_IMPROVEMENT:|ACTIONABLE_RECOMMENDATIONS:|$)/i);
   const areasMatch = response.match(/AREAS_FOR_IMPROVEMENT:\s*([\s\S]*?)(?=\nACTIONABLE_RECOMMENDATIONS:|EVALUATION PRINCIPLES:|$)/i);
@@ -489,7 +446,6 @@ function parseAIResponse(response: string): { summary: string; feedback: string 
     return { summary, feedback: feedback.trim() };
   }
 
-  // Try old format (SUMMARY and DETAILED_FEEDBACK)
   const oldSummaryMatch = response.match(/SUMMARY:\s*([\s\S]*?)(?=\n\nDETAILED_FEEDBACK:|$)/i);
   const oldFeedbackMatch = response.match(/DETAILED_FEEDBACK:\s*([\s\S]*?)$/i);
 
@@ -500,7 +456,6 @@ function parseAIResponse(response: string): { summary: string; feedback: string 
     };
   }
 
-  // Fallback: split the response in half
   const lines = response.split('\n');
   const midPoint = Math.floor(lines.length / 2);
 
@@ -510,13 +465,9 @@ function parseAIResponse(response: string): { summary: string; feedback: string 
   };
 }
 
-/**
- * Estimate score based on session and AI response
- */
 function estimateScore(session: SessionWithAnswers, aiResponse: ParsedAIResponse): number {
   const responseText = (aiResponse.summary + ' ' + aiResponse.feedback).toLowerCase();
 
-  // Negative indicators - expanded list
   const negativeIndicators = [
     'does not answer', 'doesn\'t answer', 'did not address', 'didn\'t address',
     'irrelevant', 'off-topic', 'not related', 'failed to answer', 'fails to answer',
@@ -525,7 +476,6 @@ function estimateScore(session: SessionWithAnswers, aiResponse: ParsedAIResponse
     'barely addresses', 'superficial', 'lacks substance'
   ];
 
-  // Positive indicators
   const positiveIndicators = [
     'excellent', 'strong', 'well-developed', 'comprehensive', 'thorough',
     'articulate', 'coherent', 'well-organized', 'detailed', 'insightful'
@@ -534,8 +484,7 @@ function estimateScore(session: SessionWithAnswers, aiResponse: ParsedAIResponse
   const hasNegativeIndicators = negativeIndicators.some(indicator => responseText.includes(indicator));
   const hasPositiveIndicators = positiveIndicators.some(indicator => responseText.includes(indicator));
 
-  // Base score calculation
-  let score = 50; // Start at neutral
+  let score = 50;
 
   if (hasNegativeIndicators) {
     score -= 20;
@@ -544,33 +493,29 @@ function estimateScore(session: SessionWithAnswers, aiResponse: ParsedAIResponse
     score += 15;
   }
 
-  // SEVERE penalty for extremely short responses (writing)
   if (session.exam.type === 'WRITING') {
     const totalWords = session.writingAnswers?.reduce((sum: number, a: any) => sum + a.wordCount, 0) || 0;
     const answerCount = session.writingAnswers?.length || 0;
 
-    // Extreme penalties for insufficient length
     if (totalWords < 30) {
-      score -= 30; // Extremely short - almost no content
+      score -= 30;
     } else if (totalWords < 50) {
-      score -= 20; // Very short - insufficient
+      score -= 20;
     } else if (totalWords < 100) {
-      score -= 10; // Short - minimal effort
+      score -= 10;
     } else if (totalWords < 150) {
-      score -= 5; // Below expectations
+      score -= 5;
     } else if (totalWords >= 250) {
-      score += 10; // Good length
+      score += 10;
     } else if (totalWords >= 400) {
-      score += 15; // Excellent length
+      score += 15;
     }
 
-    // Penalty for not completing all tasks
     if (answerCount < 2) {
       score -= 15;
     }
   }
 
-  // SEVERE penalty for extremely short responses (speaking)
   if (session.exam.type === 'SPEAKING') {
     const answers = session.speakingAnswers;
     const totalChars = answers ? answers.reduce((sum: number, a) => sum + ((a as { transcription?: string }).transcription?.length || 0), 0) : 0;
@@ -593,7 +538,6 @@ function estimateScore(session: SessionWithAnswers, aiResponse: ParsedAIResponse
     }
   }
 
-  // Bonus for completing all required tasks
   const answerCount = session.exam.type === 'SPEAKING'
     ? session.speakingAnswers?.length || 0
     : session.writingAnswers?.length || 0;
@@ -602,13 +546,9 @@ function estimateScore(session: SessionWithAnswers, aiResponse: ParsedAIResponse
     score += 5;
   }
 
-  // Ensure score is within bounds (removed the 60 floor)
   return Math.max(0, Math.min(100, score));
 }
 
-/**
- * Fallback placeholder functions
- */
 function generatePlaceholderSummary(session: SessionWithAnswers): string {
   const type = session.exam.type;
 

@@ -1,100 +1,166 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
 
-// Dynamically import whisper for server-side transcription
-let transcribeAudio: ((audioBlob: Blob) => Promise<string>) | null = null;
-
-async function initializeWhisper() {
-    if (!transcribeAudio) {
-        try {
-            const whisperModule = await import('@/services/whisper');
-            transcribeAudio = whisperModule.transcribeAudio;
-        } catch (error) {
-            console.error('Failed to initialize Whisper on server:', error);
-            throw new Error('Whisper initialization failed');
-        }
-    }
-    return transcribeAudio;
-}
-
-// POST /api/whisper - Server-side transcription
+// POST /api/whisper - Server-side transcription using local Whisper server
 export async function POST(request: NextRequest) {
-    try {
-        // Check if server-side whisper is enabled
-        const config = await prisma.adminConfig.findUnique({
-            where: { key: 'whisper_mode' }
-        });
+  const startTime = Date.now();
 
-        if (config?.value !== 'server') {
-            return NextResponse.json(
-                { error: 'Server-side Whisper is not enabled. Please use client-side transcription.' },
-                { status: 400 }
-            );
-        }
+  try {
+    const formData = await request.formData();
+    const audioFile = formData.get('audio') as File;
 
-        const formData = await request.formData();
-        const audioFile = formData.get('audio') as File;
-
-        if (!audioFile) {
-            return NextResponse.json(
-                { error: 'No audio file provided' },
-                { status: 400 }
-            );
-        }
-
-        // Convert File to Blob
-        const arrayBuffer = await audioFile.arrayBuffer();
-        const audioBlob = new Blob([arrayBuffer], { type: audioFile.type });
-
-        // Initialize and run Whisper
-        const transcribe = await initializeWhisper();
-        if (!transcribe) {
-            return NextResponse.json(
-                { error: 'Failed to initialize Whisper' },
-                { status: 500 }
-            );
-        }
-
-        console.log(`[Server Whisper] Transcribing audio file: ${audioFile.name}, size: ${audioFile.size} bytes`);
-        const startTime = Date.now();
-
-        const transcription = await transcribe(audioBlob);
-
-        const duration = Date.now() - startTime;
-        console.log(`[Server Whisper] Transcription completed in ${duration}ms`);
-
-        return NextResponse.json({
-            success: true,
-            transcription,
-            duration,
-        });
-
-    } catch (error: any) {
-        console.error('[Server Whisper] Error:', error);
-        return NextResponse.json(
-            { error: error.message || 'Transcription failed' },
-            { status: 500 }
-        );
+    if (!audioFile) {
+      console.error('[Whisper API] No audio file provided');
+      return NextResponse.json({ error: 'No audio file provided' }, { status: 400 });
     }
+
+    // Validate audio file size (max 50MB)
+    const MAX_AUDIO_SIZE = 50 * 1024 * 1024;
+    if (audioFile.size > MAX_AUDIO_SIZE) {
+      console.error('[Whisper API] Audio file too large:', audioFile.size);
+      return NextResponse.json({ error: 'Audio file too large (max 50MB)' }, { status: 400 });
+    }
+
+    // Validate audio file size (min 1KB to detect actual audio)
+    if (audioFile.size < 1024) {
+      console.error('[Whisper API] Audio file too small, possibly empty:', audioFile.size);
+      return NextResponse.json({ error: 'Audio file is empty or too small' }, { status: 400 });
+    }
+
+    // Get Whisper server configuration
+    const whisperApiUrl = process.env.WHISPER_API_URL || 'http://127.0.0.1:8659';
+    const whisperApiKey = process.env.WHISPER_API_KEY || 'local-whisper';
+
+    console.log(`[Whisper API] Forwarding to local Whisper server at ${whisperApiUrl}`);
+
+    // Forward the request to the local Whisper server
+    const whisperFormData = new FormData();
+    whisperFormData.append('file', audioFile);
+    whisperFormData.append('model', 'whisper-1');
+    whisperFormData.append('response_format', 'json');
+
+    // Use default retry logic
+    let transcription: string = '';
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        console.log(`[Whisper API] Transcription attempt ${attempt}/3...`);
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
+
+        const whisperRes = await fetch(`${whisperApiUrl}/v1/audio/transcriptions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${whisperApiKey}`,
+          },
+          body: whisperFormData,
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!whisperRes.ok) {
+          const errorText = await whisperRes.text();
+          throw new Error(`Whisper server error: ${whisperRes.status} - ${errorText}`);
+        }
+
+        const data = await whisperRes.json();
+        transcription = data.text || '';
+
+        if (!transcription || typeof transcription !== 'string') {
+          throw new Error('Invalid transcription result from server');
+        }
+
+        // Success!
+        console.log(`[Whisper API] Transcription successful on attempt ${attempt}:`, transcription.substring(0, 50) + '...');
+        break;
+
+      } catch (error: any) {
+        lastError = error;
+        console.error(`[Whisper API] Transcription attempt ${attempt} failed:`, error.message);
+
+        if (attempt === 3) {
+          break;
+        }
+
+        // Retry with exponential backoff for network/timeout errors
+        if (
+          error.message.includes('timeout') ||
+          error.message.includes('fetch') ||
+          error.message.includes('network') ||
+          error.message.includes('ECONNREFUSED')
+        ) {
+          const waitTime = 1000 * attempt;
+          console.log(`[Whisper API] Retrying after ${waitTime}ms...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        } else {
+          // Don't retry on other errors
+          break;
+        }
+      }
+    }
+
+    if (!transcription && lastError) {
+      throw lastError;
+    }
+
+    const duration = Date.now() - startTime;
+    console.log(`[Whisper API] Transcription completed in ${duration}ms`);
+
+    return NextResponse.json({
+      success: true,
+      transcription: transcription.trim(),
+      duration
+    });
+
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Transcription failed';
+    console.error('[Whisper API] Transcription error:', message, error);
+
+    // Provide helpful error message if Whisper server is not available
+    if (message.includes('ECONNREFUSED') || message.includes('fetch failed')) {
+      return NextResponse.json({
+        error: 'Whisper server is not running. Please start the local Whisper server using: python whisper-server/main.py',
+      }, { status: 503 });
+    }
+
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
 
-// GET /api/whisper - Check whisper mode and status
+// GET /api/whisper - Check whisper status
 export async function GET() {
-    try {
-        const config = await prisma.adminConfig.findUnique({
-            where: { key: 'whisper_mode' }
-        });
+  try {
+    const whisperApiUrl = process.env.WHISPER_API_URL || 'http://127.0.0.1:8659';
 
-        return NextResponse.json({
-            mode: config?.value || 'client',
-            serverAvailable: true, // We could add a health check here
-        });
+    // Check if Whisper server is running
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
-    } catch (error) {
-        console.error('[Server Whisper] Error checking status:', error);
-        return NextResponse.json({
-            mode: 'client',
-            serverAvailable: false,
-        });
+    const healthRes = await fetch(`${whisperApiUrl}/health`, {
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!healthRes.ok) {
+      throw new Error('Whisper server health check failed');
     }
+
+    const healthData = await healthRes.json();
+
+    return NextResponse.json({
+      ready: healthData.ready || true,
+      service: 'local-whisper-server',
+      model: healthData.model || 'unknown',
+    });
+  } catch (error) {
+    console.error('[Whisper API] GET error:', error);
+    return NextResponse.json({
+      ready: false,
+      service: 'local-whisper-server',
+      error: 'Whisper server is not running. Start it with: python whisper-server/main.py'
+    }, { status: 503 });
+  }
 }
