@@ -159,7 +159,7 @@ async def transcribe_audio(
         # Transcribe
         segments, info = whisper_model.transcribe(
             temp_filename,
-            language=language,
+            language="en",  # Always use English
             beam_size=5,
             vad_filter=True,
             vad_parameters={

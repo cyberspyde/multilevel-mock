@@ -104,14 +104,8 @@ async function transcribeAnswer(
     const whisperData = await whisperRes.json();
     console.log(`[Transcribe-All] Whisper API response:`, whisperData);
 
-    const transcription = whisperData.transcription?.trim() || null;
-
-    // Validate we got actual transcription
-    if (!transcription) {
-      const error = 'Empty transcription result from Whisper API';
-      console.error(`[Transcribe-All] ${error} for answer ${answer.id}`);
-      return { success: false, answerId: answer.id, questionId: answer.questionId, error };
-    }
+    // Handle empty transcription gracefully - use placeholder for silent/inaudible audio
+    const transcription = whisperData.transcription?.trim() || '[No speech detected]';
 
     // Update answer with transcription
     await prisma.speakingAnswer.update({
