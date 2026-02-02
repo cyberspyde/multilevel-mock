@@ -267,7 +267,7 @@ function SpeakingResultContent() {
                   <span className="text-sm">Processing transcriptions... ({transcriptionProgress.total} responses)</span>
                 </div>
               )}
-              {transcriptionError && (
+              {!transcribing && transcriptionError && (
                 <div className="mt-4 mx-auto max-w-lg bg-red-100/20 border border-red-200/50 rounded-lg px-4 py-3">
                   <p className="text-sm text-red-100 mb-2">{transcriptionError}</p>
                   <button

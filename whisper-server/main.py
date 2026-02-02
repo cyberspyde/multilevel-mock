@@ -167,12 +167,18 @@ async def transcribe_audio(
             }
         )
 
-        # Combine all segments
-        transcription_text = " ".join([segment.text for segment in segments]).strip()
+        # Combine all segments (convert generator to list first)
+        segment_list = list(segments)
+        transcription_text = " ".join([segment.text for segment in segment_list]).strip()
 
         duration = time.time() - start_time
 
-        print(f"[Whisper Server] Transcription completed in {duration:.2f}s: {transcription_text[:50]}...")
+        # Handle empty transcription (silence or inaudible)
+        if not transcription_text:
+            transcription_text = "[No speech detected]"
+            print(f"[Whisper Server] No speech detected in audio, completed in {duration:.2f}s")
+        else:
+            print(f"[Whisper Server] Transcription completed in {duration:.2f}s: {transcription_text[:50]}...")
 
         return TranscriptionResponse(
             text=transcription_text,

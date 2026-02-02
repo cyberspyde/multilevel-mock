@@ -66,14 +66,16 @@ export async function POST(request: NextRequest) {
         }
 
         const data = await whisperRes.json();
+        console.log(`[Whisper API] Raw response from whisper server:`, JSON.stringify(data));
         transcription = data.text || '';
 
-        if (!transcription || typeof transcription !== 'string') {
+        // Empty transcription is valid (silence or inaudible audio)
+        if (typeof transcription !== 'string') {
           throw new Error('Invalid transcription result from server');
         }
 
         // Success!
-        console.log(`[Whisper API] Transcription successful on attempt ${attempt}:`, transcription.substring(0, 50) + '...');
+        console.log(`[Whisper API] Transcription successful on attempt ${attempt}:`, transcription ? transcription.substring(0, 50) + '...' : '(empty)');
         break;
 
       } catch (error: any) {
@@ -101,7 +103,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (!transcription && lastError) {
+    if (lastError && transcription === undefined) {
       throw lastError;
     }
 
@@ -110,7 +112,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      transcription: transcription.trim(),
+      transcription: (transcription || '').trim(),
       duration
     });
 
