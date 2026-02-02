@@ -167,22 +167,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Session ID is required.' }, { status: 400 });
     }
 
-    // Check if server-side whisper is enabled
-    const whisperConfig = await prisma.adminConfig.findUnique({
-      where: { key: 'whisper_mode' }
-    });
-
-    if (whisperConfig?.value !== 'server') {
-      console.error('[Transcribe-All] Server-side Whisper is not enabled');
-      return NextResponse.json({
-        error: 'Server-side transcription is not enabled. Please enable it in the admin settings or use client-side transcription.',
-        results: [],
-        processed: 0,
-        successCount: 0,
-        failureCount: 0,
-      }, { status: 400 });
-    }
-
+    // Server-side whisper is always enabled (client-side removed)
     console.log(`[Transcribe-All] Starting transcription for session ${sessionId}`);
 
     // Get session with answers that need transcription

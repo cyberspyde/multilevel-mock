@@ -6,7 +6,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const formData = await request.formData();
-    const audioFile = formData.get('audio') as File;
+    const audioFile = formData.get('file') as File || formData.get('audio') as File;
 
     if (!audioFile) {
       console.error('[Whisper API] No audio file provided');
