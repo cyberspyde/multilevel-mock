@@ -5,3 +5,8 @@ fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6
 faster-whisper>=0.10.0
+
+# For GPU support, install PyTorch with CUDA:
+# pip install torch --index-url https://download.pytorch.org/whl/cu121
+# Or for CUDA 11.8:
+# pip install torch --index-url https://download.pytorch.org/whl/cu118

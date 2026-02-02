@@ -27,10 +27,29 @@ from pydantic import BaseModel
 
 from faster_whisper import WhisperModel
 
+# Auto-detect CUDA availability
+def get_device_and_compute_type():
+    """Auto-detect the best device and compute type."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            device = "cuda"
+            # Use float16 for GPU (faster and uses less VRAM)
+            compute_type = "float16"
+            gpu_name = torch.cuda.get_device_name(0)
+            print(f"[Whisper Server] GPU detected: {gpu_name}")
+            return device, compute_type
+    except ImportError:
+        pass
+    
+    # Fallback to CPU
+    return "cpu", "int8"
+
 # Configuration
 MODEL_SIZE = os.getenv("WHISPER_MODEL", "small")
-DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
-COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+_auto_device, _auto_compute = get_device_and_compute_type()
+DEVICE = os.getenv("WHISPER_DEVICE", _auto_device)
+COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", _auto_compute)
 
 # Global model instance
 whisper_model = None
