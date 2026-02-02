@@ -16,6 +16,7 @@ Environment Variables (optional):
 import os
 import time
 import uuid
+import tempfile
 from typing import Optional
 from contextlib import asynccontextmanager
 
@@ -145,8 +146,9 @@ async def transcribe_audio(
     if len(content) < 1024:
         raise HTTPException(status_code=400, detail="File too small (may be empty)")
 
-    # Save to temp file for faster-whisper
-    temp_filename = f"/tmp/whisper_{uuid.uuid4().hex}.{file.filename.split('.')[-1]}"
+    # Save to temp file for faster-whisper (cross-platform)
+    file_ext = file.filename.split('.')[-1] if '.' in file.filename else 'webm'
+    temp_filename = os.path.join(tempfile.gettempdir(), f"whisper_{uuid.uuid4().hex}.{file_ext}")
 
     try:
         with open(temp_filename, "wb") as f:
