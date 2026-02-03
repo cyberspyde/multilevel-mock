@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { generateContentWithFallback, type AIProvider } from '@/services/ai-provider';
+import { 
+  generateContentWithFallback, 
+  gradeInChunks, 
+  estimateTokens,
+  type AIProvider,
+  type ChunkedGradingConfig
+} from '@/services/ai-provider';
 import type { ExamSession, SpeakingAnswer, WritingAnswer } from '@prisma/client';
 
 // User-friendly error messages
@@ -17,7 +23,14 @@ const ERROR_MESSAGES = {
 type SessionWithAnswers = ExamSession & {
   exam: { type: string; title: string; description: string };
   speakingAnswers?: Array<Pick<SpeakingAnswer, 'transcription' | 'duration'> & { question?: { text?: string } }>;
-  writingAnswers?: Array<Pick<WritingAnswer, 'wordCount' | 'content'> & { prompt?: { prompt?: string } }>;
+  writingAnswers?: Array<Pick<WritingAnswer, 'wordCount' | 'content'> & { 
+    prompt?: { 
+      prompt?: string; 
+      title?: string; 
+      taskNumber?: string | null;
+      part?: { id: string; order: number; title: string; description?: string | null } | null;
+    } 
+  }>;
 };
 
 type WpmStats = { totalWords: number; totalDuration: number; wpm: number };
@@ -44,7 +57,7 @@ export async function POST(request: NextRequest) {
         include: {
           exam: true,
           speakingAnswers: { include: { question: true } },
-          writingAnswers: { include: { prompt: true } },
+          writingAnswers: { include: { prompt: { include: { part: true } } } },
         },
       }),
     ]);
@@ -85,6 +98,10 @@ export async function POST(request: NextRequest) {
     // Calculate WPM stats
     const wpmStats = calculateWpmStats(session);
 
+    // Get context limit from config (default to 8192 for local models)
+    const maxContextTokens = parseInt(dbConfig['ai_max_context_tokens'] || '8192', 10);
+    const reservedTokens = parseInt(dbConfig['ai_reserved_tokens'] || '2000', 10);
+
     // Generate AI feedback
     const prompt = customPrompt
       ? applyCustomPrompt(customPrompt, session)
@@ -96,21 +113,53 @@ export async function POST(request: NextRequest) {
     let usedModel: string;
     let score: number;
     let errorMessage: string | undefined;
+    let chunksUsed = 0;
+
+    // Check if we need chunked grading based on prompt size
+    const promptTokens = estimateTokens(prompt);
+    const needsChunking = promptTokens > (maxContextTokens - reservedTokens);
 
     try {
-      const result = await generateContentWithFallback(prompt, provider, dbConfig);
-      const aiResponse = parseAIResponse(result.content);
+      if (needsChunking && !customPrompt) {
+        const answers = prepareAnswersForChunking(session);
+        const examType = session.exam.type as 'SPEAKING' | 'WRITING';
 
-      // Validate AI response
-      if (!aiResponse.summary || !aiResponse.feedback) {
-        throw new Error('Invalid AI response format');
+        const chunkedConfig: ChunkedGradingConfig = {
+          maxContextTokens,
+          reservedTokens,
+          provider,
+          dbConfig,
+        };
+
+        const chunkedResult = await gradeInChunks(
+          session.studentName,
+          session.exam.title,
+          examType,
+          answers,
+          chunkedConfig
+        );
+
+        summary = chunkedResult.summary;
+        feedback = chunkedResult.feedback;
+        usedProvider = chunkedResult.provider;
+        usedModel = chunkedResult.model;
+        chunksUsed = chunkedResult.chunksUsed;
+        score = estimateScore(session, { summary, feedback });
+      } else {
+        const result = await generateContentWithFallback(prompt, provider, dbConfig);
+        const aiResponse = parseAIResponse(result.content);
+
+        // Validate AI response
+        if (!aiResponse.summary || !aiResponse.feedback) {
+          throw new Error('Invalid AI response format');
+        }
+
+        summary = aiResponse.summary;
+        feedback = aiResponse.feedback;
+        usedProvider = result.provider;
+        usedModel = result.model;
+        score = estimateScore(session, aiResponse);
       }
-
-      summary = aiResponse.summary;
-      feedback = aiResponse.feedback;
-      usedProvider = result.provider;
-      usedModel = result.model;
-      score = estimateScore(session, aiResponse);
 
     } catch (aiError: unknown) {
       errorMessage = aiError instanceof Error ? aiError.message : 'Unknown error';
@@ -136,6 +185,7 @@ export async function POST(request: NextRequest) {
             timestamp: new Date().toISOString(),
             wpm: wpmStats.wpm,
             duration: wpmStats.totalDuration,
+            ...(chunksUsed > 0 && { chunksUsed }),
             ...(errorMessage && { error: errorMessage }),
           },
         },
@@ -155,12 +205,51 @@ export async function POST(request: NextRequest) {
       grade,
       provider: usedProvider,
       model: usedModel,
+      ...(chunksUsed > 0 && { chunksUsed, message: `Grading completed in ${chunksUsed} parts due to content size` }),
       ...(errorMessage && { warning: 'AI service unavailable, using fallback evaluation' }),
     });
 
   } catch {
     return NextResponse.json({ error: 'Failed to process AI grading' }, { status: 500 });
   }
+}
+
+/**
+ * Prepare answers for chunked grading
+ */
+function prepareAnswersForChunking(session: SessionWithAnswers): Array<{
+  question: string;
+  answer: string;
+  wordCount?: number;
+  duration?: number;
+}> {
+  const examType = session.exam.type;
+  const answers: Array<{ question: string; answer: string; wordCount?: number; duration?: number }> = [];
+
+  if (examType === 'SPEAKING' && session.speakingAnswers) {
+    for (const sa of session.speakingAnswers) {
+      answers.push({
+        question: (sa as any).question?.text || 'Unknown question',
+        answer: sa.transcription || '(No transcription)',
+        duration: sa.duration || undefined,
+        wordCount: sa.transcription?.split(/\s+/).length || 0,
+      });
+    }
+  } else if (examType === 'WRITING' && session.writingAnswers) {
+    for (const wa of session.writingAnswers) {
+      const taskNumber = wa.prompt?.taskNumber ? `Task ${wa.prompt.taskNumber}` : 'Task';
+      const partLabel = wa.prompt?.part ? `Part ${wa.prompt.part.order}` : '';
+      const label = [partLabel, taskNumber].filter(Boolean).join(' - ');
+      const questionText = wa.prompt?.prompt || 'Unknown prompt';
+      answers.push({
+        question: `${label}: ${questionText}`,
+        answer: wa.content || '(No answer)',
+        wordCount: wa.wordCount || 0,
+      });
+    }
+  }
+
+  return answers;
 }
 
 function calculateWpmStats(session: SessionWithAnswers): WpmStats {
@@ -196,10 +285,13 @@ function applyCustomPrompt(customPrompt: string, session: SessionWithAnswers): s
       return `Q${index + 1}: "${q}"\nA${index + 1}: "${a}"`;
     }).join('\n');
   } else if (examType === 'WRITING' && writingAnswers && writingAnswers.length > 0) {
-    answers = writingAnswers.map((answer: { prompt?: { prompt?: string } }, index: number) => {
+    answers = writingAnswers.map((answer: { prompt?: { prompt?: string; taskNumber?: string | null; part?: { order: number } | null } }, index: number) => {
       const q = answer.prompt?.prompt || 'Unknown';
       const a = (answer as { content?: string }).content || '(No answer)';
-      return `Q${index + 1}: "${q.substring(0, 100)}..."\nA${index + 1}: "${a.substring(0, 200)}..."`;
+      const taskLabel = answer.prompt?.taskNumber ? `Task ${answer.prompt.taskNumber}` : `Task ${index + 1}`;
+      const partLabel = answer.prompt?.part ? `Part ${answer.prompt.part.order}` : '';
+      const label = [partLabel, taskLabel].filter(Boolean).join(' - ');
+      return `${label}: "${q.substring(0, 100)}..."\nResponse: "${a.substring(0, 200)}..."`;
     }).join('\n\n');
   }
 
@@ -258,7 +350,11 @@ Type: ${examType}
     prompt += `WRITING RESPONSES:\n\n`;
 
     writingAnswers.forEach((answer, index) => {
-      prompt += `Task ${index + 1}: ${(answer as { prompt?: { prompt?: string } }).prompt?.prompt || 'Unknown'}\n`;
+      const promptInfo = (answer as { prompt?: { prompt?: string; taskNumber?: string | null; part?: { order: number; title?: string } | null } }).prompt;
+      const taskLabel = promptInfo?.taskNumber ? `Task ${promptInfo.taskNumber}` : `Task ${index + 1}`;
+      const partLabel = promptInfo?.part ? `Part ${promptInfo.part.order}` : '';
+      const label = [partLabel, taskLabel].filter(Boolean).join(' - ');
+      prompt += `${label}: ${promptInfo?.prompt || 'Unknown'}\n`;
       prompt += `Word Count: ${(answer as { wordCount: number }).wordCount} words\n`;
       prompt += `Response:\n"${(answer as { content: string }).content}"\n\n`;
     });

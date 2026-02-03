@@ -6,6 +6,7 @@ import EditExamModal from '@/components/EditExamModal';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import PrintableGradeReport from '@/components/PrintableGradeReport';
+import { MarkdownRenderer, downloadGradeAsPdf } from '@/components/MarkdownRenderer';
 
 type AdminTab = 'dashboard' | 'exams' | 'sessions' | 'grading' | 'settings';
 
@@ -3318,15 +3319,36 @@ function SessionDetailModal({ session, onClose, onRefresh }: { session: SessionD
                 <div key={grade.id} className="bg-purple-50 border border-purple-200 rounded-lg p-4">
                   <div className="flex justify-between items-center mb-3">
                     <span className="text-lg font-bold text-purple-900">Score: {grade.score || 'N/A'}</span>
-                    <span className="text-xs text-purple-700">{grade.metadata?.provider || 'AI'}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-purple-700">{grade.metadata?.provider || 'AI'}</span>
+                      <button
+                        onClick={() => downloadGradeAsPdf(
+                          session.studentName,
+                          session.exam.title,
+                          session.exam.type,
+                          session.completedAt,
+                          grade
+                        )}
+                        className="flex items-center gap-1 px-3 py-1 bg-white border border-purple-300 rounded text-purple-700 hover:bg-purple-100 transition-colors text-xs font-medium"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        PDF
+                      </button>
+                    </div>
                   </div>
                   <div className="mb-3">
                     <p className="text-xs font-medium text-purple-900 mb-1">Summary:</p>
-                    <p className="text-sm text-gray-800">{grade.summary}</p>
+                    <div className="bg-white rounded p-2">
+                      <MarkdownRenderer content={grade.summary || ''} className="text-sm text-gray-800" />
+                    </div>
                   </div>
                   <div>
                     <p className="text-xs font-medium text-purple-900 mb-1">Feedback:</p>
-                    <p className="text-sm text-gray-800 whitespace-pre-wrap">{grade.feedback}</p>
+                    <div className="bg-white rounded p-2">
+                      <MarkdownRenderer content={grade.feedback || ''} className="text-sm text-gray-800" />
+                    </div>
                   </div>
                 </div>
               ))}

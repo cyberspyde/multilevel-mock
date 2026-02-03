@@ -12,7 +12,14 @@ import type { ExamSession, SpeakingAnswer, WritingAnswer } from '@prisma/client'
 type SessionWithAnswers = ExamSession & {
   exam: { type: string; title: string; description: string };
   speakingAnswers?: Array<Pick<SpeakingAnswer, 'transcription' | 'duration'> & { question?: { text?: string } }>;
-  writingAnswers?: Array<Pick<WritingAnswer, 'wordCount' | 'content'> & { prompt?: { prompt?: string } }>;
+  writingAnswers?: Array<Pick<WritingAnswer, 'wordCount' | 'content'> & { 
+    prompt?: { 
+      prompt?: string; 
+      title?: string; 
+      taskNumber?: string | null;
+      part?: { id: string; order: number; title: string; description?: string | null } | null;
+    } 
+  }>;
 };
 
 type WpmStats = { totalWords: number; totalDuration: number; wpm: number };
@@ -34,7 +41,7 @@ export async function POST(
       include: {
         exam: true,
         speakingAnswers: { include: { question: true } },
-        writingAnswers: { include: { prompt: true } },
+        writingAnswers: { include: { prompt: { include: { part: true } } } },
       },
     });
 
@@ -227,8 +234,12 @@ function prepareAnswersForChunking(session: SessionWithAnswers): Array<{
     }
   } else if (examType === 'WRITING' && session.writingAnswers) {
     for (const wa of session.writingAnswers) {
+      const taskNumber = wa.prompt?.taskNumber ? `Task ${wa.prompt.taskNumber}` : 'Task';
+      const partLabel = wa.prompt?.part ? `Part ${wa.prompt.part.order}` : '';
+      const label = [partLabel, taskNumber].filter(Boolean).join(' - ');
+      const questionText = wa.prompt?.prompt || 'Unknown prompt';
       answers.push({
-        question: (wa as any).prompt?.prompt || 'Unknown prompt',
+        question: `${label}: ${questionText}`,
         answer: wa.content || '(No answer)',
         wordCount: wa.wordCount || 0,
       });
@@ -252,10 +263,13 @@ function applyCustomPrompt(customPrompt: string, session: SessionWithAnswers): s
       return `Q${index + 1}: "${q}"\nA${index + 1}: "${a}"`;
     }).join('\n');
   } else if (examType === 'WRITING' && writingAnswers && writingAnswers.length > 0) {
-    answers = writingAnswers.map((answer: { prompt?: { prompt?: string } }, index: number) => {
+    answers = writingAnswers.map((answer: { prompt?: { prompt?: string; taskNumber?: string | null; part?: { order: number } | null } }, index: number) => {
       const q = answer.prompt?.prompt || 'Unknown';
       const a = (answer as { content?: string }).content || '(No answer)';
-      return `Q${index + 1}: "${q.substring(0, 100)}..."\nA${index + 1}: "${a.substring(0, 200)}..."`;
+      const taskLabel = answer.prompt?.taskNumber ? `Task ${answer.prompt.taskNumber}` : `Task ${index + 1}`;
+      const partLabel = answer.prompt?.part ? `Part ${answer.prompt.part.order}` : '';
+      const label = [partLabel, taskLabel].filter(Boolean).join(' - ');
+      return `${label}: "${q.substring(0, 100)}..."\nResponse: "${a.substring(0, 200)}..."`;
     }).join('\n\n');
   }
 
@@ -307,7 +321,11 @@ Type: ${examType}
   } else if (isWriting && writingAnswers && writingAnswers.length > 0) {
     prompt += `WRITING RESPONSES:\n\n`;
     writingAnswers.forEach((answer, index) => {
-      prompt += `Task ${index + 1}: ${(answer as { prompt?: { prompt?: string } }).prompt?.prompt || 'Unknown'}\n`;
+      const promptInfo = (answer as { prompt?: { prompt?: string; taskNumber?: string | null; part?: { order: number; title?: string } | null } }).prompt;
+      const taskLabel = promptInfo?.taskNumber ? `Task ${promptInfo.taskNumber}` : `Task ${index + 1}`;
+      const partLabel = promptInfo?.part ? `Part ${promptInfo.part.order}` : '';
+      const label = [partLabel, taskLabel].filter(Boolean).join(' - ');
+      prompt += `${label}: ${promptInfo?.prompt || 'Unknown'}\n`;
       prompt += `Word Count: ${(answer as { wordCount: number }).wordCount} words\n`;
       prompt += `Response:\n"${(answer as { content: string }).content}"\n\n`;
     });

@@ -17,6 +17,17 @@ export async function GET(
         },
         writingPrompts: {
           orderBy: { order: 'asc' },
+          include: {
+            part: true,
+          },
+        },
+        writingParts: {
+          orderBy: { order: 'asc' },
+          include: {
+            prompts: {
+              orderBy: { order: 'asc' },
+            },
+          },
         },
       },
     });

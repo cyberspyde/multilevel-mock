@@ -38,6 +38,7 @@ model Exam {
   // Relations
   questions      SpeakingQuestion[]
   writingPrompts WritingPrompt[]
+  writingParts   WritingPart[]
   sessions       ExamSession[]
 
   @@index([type, isActive])
@@ -69,7 +70,9 @@ model SpeakingQuestion {
 model WritingPrompt {
   id           String   @id @default(cuid())
   examId       String
-  order        Int      // Order in the exam
+  partId       String?  // Optional: link to a part
+  order        Int      // Order within the part (or exam if no part)
+  taskNumber   String?  // Display label like "1.1", "1.2", "2.1" etc.
   title        String   // Prompt title
   prompt       String   @db.Text // The writing prompt/instructions
   wordLimit    Int?     // Optional word limit
@@ -80,7 +83,27 @@ model WritingPrompt {
 
   // Relations
   exam           Exam           @relation(fields: [examId], references: [id], onDelete: Cascade)
+  part           WritingPart?   @relation(fields: [partId], references: [id], onDelete: SetNull)
   writingAnswers WritingAnswer[]
+
+  @@index([examId, order])
+  @@index([partId, order])
+}
+
+// Writing exam parts (containers for tasks)
+model WritingPart {
+  id          String   @id @default(cuid())
+  examId      String
+  order       Int      // Order in the exam (Part 1, Part 2, etc.)
+  title       String   // e.g., "Part 1" or "Part 1: Academic Writing"
+  description String?  @db.Text // Optional description/instructions for the part
+  timeLimit   Int?     // Optional time limit for the entire part in minutes
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  exam    Exam            @relation(fields: [examId], references: [id], onDelete: Cascade)
+  prompts WritingPrompt[]
 
   @@index([examId, order])
 }

@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { MarkdownRenderer, downloadGradeAsPdf } from '@/components/MarkdownRenderer';
 
 function WritingResultContent() {
   const searchParams = useSearchParams();
@@ -140,7 +141,16 @@ function WritingResultContent() {
               {session.writingAnswers?.map((answer: any, index: number) => (
                 <div key={answer.id} className="bg-gray-50 rounded-xl p-6 border border-gray-200">
                   <div className="flex items-start justify-between mb-3">
-                    <h4 className="font-bold text-gray-900">Task {index + 1}: {answer.prompt.title}</h4>
+                    <div>
+                      {answer.prompt?.part && (
+                        <p className="text-xs text-purple-600 font-medium mb-1">
+                          Part {answer.prompt.part.order}: {answer.prompt.part.title}
+                        </p>
+                      )}
+                      <h4 className="font-bold text-gray-900">
+                        {answer.prompt?.taskNumber ? `Task ${answer.prompt.taskNumber}` : `Task ${index + 1}`}: {answer.prompt?.title}
+                      </h4>
+                    </div>
                     <span className="text-sm text-gray-500">
                       {answer.wordCount} words
                     </span>
@@ -222,16 +232,33 @@ function WritingResultContent() {
           {/* AI Grade Display */}
           {hasAiGrade && aiGrade && (
             <div className="bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-                  <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-purple-900">AI Analysis</h3>
+                    <p className="text-purple-700 text-sm">Powered by AI Grading</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => downloadGradeAsPdf(
+                    session.studentName,
+                    session.exam.title,
+                    'Writing',
+                    session.completedAt,
+                    aiGrade
+                  )}
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-purple-300 rounded-lg text-purple-700 hover:bg-purple-50 transition-colors text-sm font-medium"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-purple-900">AI Analysis</h3>
-                  <p className="text-purple-700 text-sm">Powered by AI Grading</p>
-                </div>
+                  Download PDF
+                </button>
               </div>
 
               {aiGrade.score && (
@@ -242,14 +269,14 @@ function WritingResultContent() {
               )}
 
               <div className="space-y-4">
-                <div>
+                <div className="bg-white rounded-xl p-4 border border-purple-100">
                   <h4 className="font-bold text-gray-900 mb-2">Summary</h4>
-                  <p className="text-gray-700 whitespace-pre-wrap">{aiGrade.summary}</p>
+                  <MarkdownRenderer content={aiGrade.summary} className="text-gray-700" />
                 </div>
 
-                <div>
+                <div className="bg-white rounded-xl p-4 border border-purple-100">
                   <h4 className="font-bold text-gray-900 mb-2">Detailed Feedback</h4>
-                  <p className="text-gray-700 whitespace-pre-wrap">{aiGrade.feedback}</p>
+                  <MarkdownRenderer content={aiGrade.feedback} className="text-gray-700" />
                 </div>
               </div>
             </div>

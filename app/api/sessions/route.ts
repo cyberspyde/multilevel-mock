@@ -109,6 +109,7 @@ export async function GET(request: NextRequest) {
           include: {
             questions: { orderBy: { order: 'asc' } },
             writingPrompts: { orderBy: { order: 'asc' } },
+            writingParts: { orderBy: { order: 'asc' } },
           },
         },
         speakingAnswers: {
@@ -116,7 +117,7 @@ export async function GET(request: NextRequest) {
           orderBy: { createdAt: 'asc' },
         },
         writingAnswers: {
-          include: { prompt: true },
+          include: { prompt: { include: { part: true } } },
           orderBy: { createdAt: 'asc' },
         },
         aiGrades: true,

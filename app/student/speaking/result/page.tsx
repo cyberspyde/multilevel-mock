@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { MarkdownRenderer, downloadGradeAsPdf } from '../../../../components/MarkdownRenderer';
 
 function SpeakingResultContent() {
   const searchParams = useSearchParams();
@@ -230,21 +231,19 @@ function SpeakingResultContent() {
                       </audio>
                     </div>
                   )}
-                  {answer.transcription ? (
+                  {answer.transcription && (
                     <div className="mt-4 p-4 bg-white rounded-lg border border-gray-200">
                       <p className="text-sm text-gray-500 mb-1">Transcription:</p>
                       <p className="text-gray-900">"{answer.transcription}"</p>
                     </div>
-                  ) : (
-                    <div className="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
-                      <p className="text-sm text-red-600 font-medium mb-1">
-                        {answer.audioUrl ? 'Transcription Failed' : 'No Response Recorded'}
-                      </p>
-                      <p className="text-xs text-red-500">
-                        {answer.audioUrl
-                          ? 'The speech-to-text service was unable to transcribe your recording. Your audio was saved, but we could not generate text.'
-                          : 'No audio was recorded for this question.'}
-                      </p>
+                  )}
+                  {/* Show pending status instead of error for missing transcriptions */}
+                  {answer.audioUrl && !answer.transcription && transcribing && (
+                    <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                      <div className="flex items-center gap-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent" />
+                        <p className="text-sm text-blue-600 font-medium">Processing transcription...</p>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -364,16 +363,33 @@ function SpeakingResultContent() {
           {/* AI Grade Display */}
           {hasAiGrade && aiGrade && (
             <div className="bg-gradient-to-br from-blue-50 to-purple-50 border border-blue-200 rounded-2xl p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-blue-900">AI Analysis</h3>
+                    <p className="text-blue-700 text-sm">Powered by AI Grading</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => downloadGradeAsPdf(
+                    session.studentName,
+                    session.exam.title,
+                    'Speaking',
+                    session.completedAt,
+                    aiGrade
+                  )}
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-blue-300 rounded-lg text-blue-700 hover:bg-blue-50 transition-colors text-sm font-medium"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-blue-900">AI Analysis</h3>
-                  <p className="text-blue-700 text-sm">Powered by AI Grading</p>
-                </div>
+                  Download PDF
+                </button>
               </div>
 
               {aiGrade.score && (
@@ -384,14 +400,14 @@ function SpeakingResultContent() {
               )}
 
               <div className="space-y-4">
-                <div>
+                <div className="bg-white rounded-xl p-4 border border-blue-100">
                   <h4 className="font-bold text-gray-900 mb-2">Summary</h4>
-                  <p className="text-gray-700 whitespace-pre-wrap">{aiGrade.summary}</p>
+                  <MarkdownRenderer content={aiGrade.summary} className="text-gray-700" />
                 </div>
 
-                <div>
+                <div className="bg-white rounded-xl p-4 border border-blue-100">
                   <h4 className="font-bold text-gray-900 mb-2">Detailed Feedback</h4>
-                  <p className="text-gray-700 whitespace-pre-wrap">{aiGrade.feedback}</p>
+                  <MarkdownRenderer content={aiGrade.feedback} className="text-gray-700" />
                 </div>
               </div>
             </div>

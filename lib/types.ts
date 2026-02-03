@@ -18,12 +18,24 @@ export interface SpeakingQuestionWithMedia {
 export interface WritingPromptWithDetails {
   id: string;
   examId: string;
+  partId: string | null;
   order: number;
+  taskNumber: string | null;
   title: string;
   prompt: string;
   wordLimit: number | null;
   timeLimit: number | null;
   instructions: string | null;
+}
+
+export interface WritingPartWithPrompts {
+  id: string;
+  examId: string;
+  order: number;
+  title: string;
+  description: string | null;
+  timeLimit: number | null;
+  prompts: WritingPromptWithDetails[];
 }
 
 export interface ExamSessionWithDetails {
