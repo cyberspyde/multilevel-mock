@@ -14,7 +14,7 @@ timeout /t 2 /nobreak > nul
 
 :: Start Next.js Dev Server in a new window
 echo [2/2] Starting Next.js Dev Server...
-start "Next.js Dev Server" cmd /k "cd /d %~dp0 && set WHISPER_API_URL=http://127.0.0.1:8659 && npm run dev"
+start "Next.js Dev Server" cmd /k "cd /d %~dp0 && npm run dev"
 
 echo.
 echo ========================================

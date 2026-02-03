@@ -20,7 +20,8 @@ export async function POST(request: NextRequest) {
     whisperFormData.append('response_format', 'json');
     whisperFormData.append('timestamp_granularities', 'word');
 
-    const whisperRes = await fetch(`${process.env.WHISPER_API_URL || 'http://127.0.0.1:8659'}/v1/audio/transcriptions`, {
+    const whisperApiUrl = (process.env.WHISPER_API_URL || 'http://127.0.0.1:8659').trim().replace(/\/+$/, '');
+    const whisperRes = await fetch(`${whisperApiUrl}/v1/audio/transcriptions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.WHISPER_API_KEY || 'dummy-key'}`,
