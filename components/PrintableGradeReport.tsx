@@ -45,7 +45,7 @@ export default function PrintableGradeReport({ sessions, onClose }: PrintableGra
 
             {/* Printable Content */}
             <div className="max-w-[210mm] mx-auto bg-white p-8 print:p-0">
-                {sessions.map((session, index) => (
+                {sessions.map((session, _index) => (
                     <div key={session.id} className="print:break-after-page mb-16 print:mb-0 relative min-h-[297mm]">
                         {/* Certificate/Report Header */}
                         <div className="border-b-2 border-gray-900 pb-6 mb-8">

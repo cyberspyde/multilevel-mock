@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { MarkdownRenderer, downloadGradeAsPdf } from '../../../../components/MarkdownRenderer';
@@ -11,7 +11,6 @@ function SpeakingResultContent() {
 
   const [session, setSession] = useState<any>(null);
   const [aiCode, setAiCode] = useState('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [submittingAi, setSubmittingAi] = useState(false);
   const [customPrompts, setCustomPrompts] = useState<any[]>([]);
@@ -22,28 +21,27 @@ function SpeakingResultContent() {
   const [transcriptionStarted, setTranscriptionStarted] = useState(false);
   const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (sessionId) {
-      fetchSession();
-      fetchCustomPrompts();
+  const fetchSession = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/sessions?id=${sessionId}`);
+      const data = await res.json();
+      setSession(data);
+    } catch {
+      // Silently fail
     }
   }, [sessionId]);
 
-  // Start background transcription once when session loads
-  useEffect(() => {
-    if (session && session.speakingAnswers && !transcriptionStarted) {
-      const answersNeedingTranscription = session.speakingAnswers.filter(
-        (a: { audioUrl?: string | null; transcription?: string | null }) => a.audioUrl && !a.transcription
-      );
-      if (answersNeedingTranscription.length > 0) {
-        setTranscriptionStarted(true);
-        setTranscriptionProgress({ current: 0, total: answersNeedingTranscription.length });
-        startBackgroundTranscription(answersNeedingTranscription.length);
-      }
+  const fetchCustomPrompts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/prompts');
+      const data = await res.json();
+      setCustomPrompts(data);
+    } catch {
+      // Silently fail
     }
-  }, [session, transcriptionStarted]);
+  }, []);
 
-  const startBackgroundTranscription = async (count: number) => {
+  const startBackgroundTranscription = useCallback(async (count: number) => {
     setTranscriptionError(null);
     try {
       setTranscribing(true);
@@ -91,27 +89,28 @@ function SpeakingResultContent() {
     } finally {
       setTranscribing(false);
     }
-  };
+  }, [fetchSession, sessionId]);
 
-  const fetchSession = async () => {
-    try {
-      const res = await fetch(`/api/sessions?id=${sessionId}`);
-      const data = await res.json();
-      setSession(data);
-    } catch {
-      // Silently fail
+  useEffect(() => {
+    if (sessionId) {
+      fetchSession();
+      fetchCustomPrompts();
     }
-  };
+  }, [sessionId, fetchSession, fetchCustomPrompts]);
 
-  const fetchCustomPrompts = async () => {
-    try {
-      const res = await fetch('/api/admin/prompts');
-      const data = await res.json();
-      setCustomPrompts(data);
-    } catch {
-      // Silently fail
+  // Start background transcription once when session loads
+  useEffect(() => {
+    if (session && session.speakingAnswers && !transcriptionStarted) {
+      const answersNeedingTranscription = session.speakingAnswers.filter(
+        (a: { audioUrl?: string | null; transcription?: string | null }) => a.audioUrl && !a.transcription
+      );
+      if (answersNeedingTranscription.length > 0) {
+        setTranscriptionStarted(true);
+        setTranscriptionProgress({ current: 0, total: answersNeedingTranscription.length });
+        startBackgroundTranscription(answersNeedingTranscription.length);
+      }
     }
-  };
+  }, [session, transcriptionStarted, startBackgroundTranscription]);
 
   const handleAiSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

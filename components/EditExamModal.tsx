@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 type QuestionFormat = 'AUDIO_ONLY' | 'PICTURE_TEXT' | 'VIDEO' | 'TEXT_ONLY';
 
@@ -67,9 +67,26 @@ export default function EditExamModal({ examId, onClose, onSuccess }: EditExamMo
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const uploadRetryCountRef = useRef<number>(0);
 
+  const fetchExam = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/exams/${examId}`);
+      const data = await res.json();
+      // Ensure writingParts is initialized
+      if (data.type === 'WRITING' && !data.writingParts) {
+        data.writingParts = [];
+      }
+      setExam(data);
+    } catch (err) {
+      console.error('Failed to fetch exam:', err);
+      setError('Failed to load exam');
+    } finally {
+      setLoading(false);
+    }
+  }, [examId]);
+
   useEffect(() => {
     fetchExam();
-  }, [examId]);
+  }, [fetchExam]);
 
   // Debug: Log when uploadingIndex changes
   useEffect(() => {
@@ -89,23 +106,6 @@ export default function EditExamModal({ examId, onClose, onSuccess }: EditExamMo
       });
     }
   }, [exam?.questions]);
-
-  const fetchExam = async () => {
-    try {
-      const res = await fetch(`/api/admin/exams/${examId}`);
-      const data = await res.json();
-      // Ensure writingParts is initialized
-      if (data.type === 'WRITING' && !data.writingParts) {
-        data.writingParts = [];
-      }
-      setExam(data);
-    } catch (err) {
-      console.error('Failed to fetch exam:', err);
-      setError('Failed to load exam');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleUpdateExam = async () => {
     if (!exam) return;
@@ -508,20 +508,6 @@ export default function EditExamModal({ examId, onClose, onSuccess }: EditExamMo
     setExam({ ...exam, writingParts: updatedParts });
   };
 
-  // Legacy standalone prompts (for backward compatibility)
-  const addWritingPrompt = () => {
-    if (!exam) return;
-    const newPrompt: WritingPrompt = {
-      order: (exam.writingPrompts?.length || 0) + 1,
-      title: '',
-      prompt: '',
-    };
-    setExam({
-      ...exam,
-      writingPrompts: [...(exam.writingPrompts || []), newPrompt],
-    });
-  };
-
   const updateWritingPrompt = (index: number, field: keyof WritingPrompt, value: any) => {
     if (!exam || !exam.writingPrompts) return;
     const updatedPrompts = [...exam.writingPrompts];
@@ -698,7 +684,7 @@ export default function EditExamModal({ examId, onClose, onSuccess }: EditExamMo
                   key={question.id || index}
                   question={question}
                   index={index}
-                  totalQuestions={exam.questions?.length || 0}
+                  _totalQuestions={exam.questions?.length || 0}
                   uploadingIndex={uploadingIndex}
                   uploadProgress={uploadProgress}
                   onUpdate={updateQuestion}
@@ -1045,7 +1031,7 @@ export default function EditExamModal({ examId, onClose, onSuccess }: EditExamMo
 interface QuestionCardProps {
   question: SpeakingQuestion;
   index: number;
-  totalQuestions: number;
+  _totalQuestions: number;
   uploadingIndex: number | null;
   uploadProgress: number;
   onUpdate: (index: number, field: keyof SpeakingQuestion, value: any) => void;
@@ -1060,7 +1046,7 @@ interface QuestionCardProps {
 function QuestionCard({
   question,
   index,
-  totalQuestions,
+  _totalQuestions,
   uploadingIndex,
   uploadProgress,
   onUpdate,

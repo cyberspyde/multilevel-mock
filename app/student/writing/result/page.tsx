@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { MarkdownRenderer, downloadGradeAsPdf } from '@/components/MarkdownRenderer';
@@ -16,14 +16,7 @@ function WritingResultContent() {
   const [customPrompts, setCustomPrompts] = useState<any[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<string>('');
 
-  useEffect(() => {
-    if (sessionId) {
-      fetchSession();
-      fetchCustomPrompts();
-    }
-  }, [sessionId]);
-
-  const fetchSession = async () => {
+  const fetchSession = useCallback(async () => {
     try {
       const res = await fetch(`/api/sessions?id=${sessionId}`);
       const data = await res.json();
@@ -31,9 +24,9 @@ function WritingResultContent() {
     } catch (err) {
       console.error('Failed to fetch session:', err);
     }
-  };
+  }, [sessionId]);
 
-  const fetchCustomPrompts = async () => {
+  const fetchCustomPrompts = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/prompts');
       const data = await res.json();
@@ -41,7 +34,14 @@ function WritingResultContent() {
     } catch (err) {
       console.error('Failed to fetch custom prompts:', err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (sessionId) {
+      fetchSession();
+      fetchCustomPrompts();
+    }
+  }, [sessionId, fetchSession, fetchCustomPrompts]);
 
   const handleAiSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -319,7 +319,6 @@ function WritingExamInterface({ sessionId }: { sessionId: string }) {
   const [submitting, setSubmitting] = useState(false);
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
-  const [examStartedAt, setExamStartedAt] = useState<number>(Date.now());
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Build a flat list of all tasks for navigation
@@ -382,6 +381,48 @@ function WritingExamInterface({ sessionId }: { sessionId: string }) {
     return tasks;
   }, [exam]);
 
+  const fetchExam = useCallback(async () => {
+    setIsLoadingExam(true);
+    try {
+      // First fetch the session to get the examId
+      const sessionRes = await fetch(`/api/sessions?id=${sessionId}`);
+      const sessionData = await sessionRes.json();
+
+      if (!sessionRes.ok) {
+        console.error('Failed to fetch session:', sessionData);
+        setIsLoadingExam(false);
+        return;
+      }
+
+      // Then load exam details with prompts
+      const examRes = await fetch(`/api/exams/${sessionData.examId}`);
+      const examData = await examRes.json();
+
+      if (!examRes.ok) {
+        console.error('Failed to fetch exam:', examData);
+        setIsLoadingExam(false);
+        return;
+      }
+
+      // Load existing answers
+      const loadedAnswers: Record<string, string> = {};
+      const loadedWordCounts: Record<string, number> = {};
+      sessionData.writingAnswers?.forEach((ans: any) => {
+        loadedAnswers[ans.promptId] = ans.content;
+        loadedWordCounts[ans.promptId] = ans.wordCount;
+      });
+
+      setAnswers(loadedAnswers);
+      setWordCounts(loadedWordCounts);
+      // Only set exam once we have the complete data with prompts
+      setExam(examData);
+    } catch (err) {
+      console.error('Failed to fetch exam:', err);
+    } finally {
+      setIsLoadingExam(false);
+    }
+  }, [sessionId]);
+
   useEffect(() => {
     fetchExam();
     return () => {
@@ -389,7 +430,56 @@ function WritingExamInterface({ sessionId }: { sessionId: string }) {
       if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
-  }, [sessionId]);
+  }, [fetchExam]);
+
+  const handleSubmit = useCallback(async () => {
+    // Prevent double submit
+    if (submitting) return;
+
+    setSubmitting(true);
+
+    try {
+      // Check word count requirements using allTasks
+      const wordCountWarnings: string[] = [];
+      for (const task of allTasks) {
+        const wordCount = wordCounts[task.id] || 0;
+        if (task.wordLimit && wordCount < task.wordLimit) {
+          wordCountWarnings.push(`Task ${task.taskNumber}: ${wordCount}/${task.wordLimit} words`);
+        }
+      }
+
+      // Show warning if below word count (but allow submit)
+      if (wordCountWarnings.length > 0 && !window.confirm(
+        `Warning: You are below the minimum word count for some tasks:\n\n${wordCountWarnings.join('\n')}\n\nSubmit anyway?`
+      )) {
+        setSubmitting(false);
+        return;
+      }
+
+      // Submit all answers
+      for (const task of allTasks) {
+        const content = answers[task.id] || '';
+        await fetch('/api/writing/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId,
+            promptId: task.id,
+            content,
+          }),
+        });
+      }
+
+      // Complete session
+      await fetch(`/api/sessions/${sessionId}/complete`, { method: 'POST' });
+
+      window.location.href = `/student/writing/result?id=${sessionId}`;
+    } catch (err) {
+      console.error('Failed to submit:', err);
+      setSubmitting(false);
+      alert('Failed to submit exam. Please try again.');
+    }
+  }, [allTasks, answers, wordCounts, sessionId, submitting]);
 
   // Setup timer when exam is loaded
   useEffect(() => {
@@ -442,49 +532,7 @@ function WritingExamInterface({ sessionId }: { sessionId: string }) {
     return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
-  }, [exam]);
-
-  const fetchExam = async () => {
-    setIsLoadingExam(true);
-    try {
-      // First fetch the session to get the examId
-      const sessionRes = await fetch(`/api/sessions?id=${sessionId}`);
-      const sessionData = await sessionRes.json();
-
-      if (!sessionRes.ok) {
-        console.error('Failed to fetch session:', sessionData);
-        setIsLoadingExam(false);
-        return;
-      }
-
-      // Then load exam details with prompts
-      const examRes = await fetch(`/api/exams/${sessionData.examId}`);
-      const examData = await examRes.json();
-
-      if (!examRes.ok) {
-        console.error('Failed to fetch exam:', examData);
-        setIsLoadingExam(false);
-        return;
-      }
-
-      // Load existing answers
-      const loadedAnswers: Record<string, string> = {};
-      const loadedWordCounts: Record<string, number> = {};
-      sessionData.writingAnswers?.forEach((ans: any) => {
-        loadedAnswers[ans.promptId] = ans.content;
-        loadedWordCounts[ans.promptId] = ans.wordCount;
-      });
-
-      setAnswers(loadedAnswers);
-      setWordCounts(loadedWordCounts);
-      // Only set exam once we have the complete data with prompts
-      setExam(examData);
-    } catch (err) {
-      console.error('Failed to fetch exam:', err);
-    } finally {
-      setIsLoadingExam(false);
-    }
-  };
+  }, [exam, handleSubmit]);
 
   const autoSave = async (promptId: string, content: string) => {
     // Clear existing timeout
@@ -528,55 +576,6 @@ function WritingExamInterface({ sessionId }: { sessionId: string }) {
     // Trigger auto-save
     autoSave(promptId, content);
   };
-
-  const handleSubmit = useCallback(async () => {
-    // Prevent double submit
-    if (submitting) return;
-
-    setSubmitting(true);
-
-    try {
-      // Check word count requirements using allTasks
-      const wordCountWarnings: string[] = [];
-      for (const task of allTasks) {
-        const wordCount = wordCounts[task.id] || 0;
-        if (task.wordLimit && wordCount < task.wordLimit) {
-          wordCountWarnings.push(`Task ${task.taskNumber}: ${wordCount}/${task.wordLimit} words`);
-        }
-      }
-
-      // Show warning if below word count (but allow submit)
-      if (wordCountWarnings.length > 0 && !window.confirm(
-        `Warning: You are below the minimum word count for some tasks:\n\n${wordCountWarnings.join('\n')}\n\nSubmit anyway?`
-      )) {
-        setSubmitting(false);
-        return;
-      }
-
-      // Submit all answers
-      for (const task of allTasks) {
-        const content = answers[task.id] || '';
-        await fetch('/api/writing/submit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId,
-            promptId: task.id,
-            content,
-          }),
-        });
-      }
-
-      // Complete session
-      await fetch(`/api/sessions/${sessionId}/complete`, { method: 'POST' });
-
-      window.location.href = `/student/writing/result?id=${sessionId}`;
-    } catch (err) {
-      console.error('Failed to submit:', err);
-      setSubmitting(false);
-      alert('Failed to submit exam. Please try again.');
-    }
-  }, [allTasks, answers, wordCounts, sessionId, submitting]);
 
   if (isLoadingExam) {
     return (

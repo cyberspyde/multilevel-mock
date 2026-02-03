@@ -3,7 +3,7 @@ import { TestScenario, StudentSession, Question, Answer } from '../types';
 import { updateSession } from '../services/storage';
 import { generateFeedback } from '../services/gemini';
 import { transcribeAudio, preloadWhisper } from '../services/whisper';
-import { summarizeText, analyzeTextComplexity } from '../services/summarizer';
+import { analyzeTextComplexity } from '../services/summarizer';
 import Button from './Button';
 
 interface TestPlayerProps {
@@ -52,7 +52,7 @@ const TestPlayer: React.FC<TestPlayerProps> = ({ test, session, onComplete }) =>
         videoRef.current.currentTime = lastQuestion.timestamp + 1;
       }
     }
-  }, [session.id]); // Run once on mount/session change
+  }, [session.answers, test.questions]); // Run once on mount/session change
 
   const handleTimeUpdate = () => {
     if (!videoRef.current || activeQuestion) return;

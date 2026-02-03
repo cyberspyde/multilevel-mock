@@ -3326,7 +3326,7 @@ function SessionDetailModal({ session, onClose, onRefresh }: { session: SessionD
                           session.studentName,
                           session.exam.title,
                           session.exam.type,
-                          session.completedAt,
+                          session.completedAt ?? new Date().toISOString(),
                           grade
                         )}
                         className="flex items-center gap-1 px-3 py-1 bg-white border border-purple-300 rounded text-purple-700 hover:bg-purple-100 transition-colors text-xs font-medium"
