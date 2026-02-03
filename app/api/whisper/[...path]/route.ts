@@ -44,22 +44,27 @@ export async function OPTIONS() {
   return new Response(null, { status: 204, headers: corsHeaders });
 }
 
-export async function GET(request: NextRequest, { params }: { params: { path?: string[] } }) {
-  return proxyRequest(request, params);
+export async function GET(request: NextRequest, { params }: { params: Promise<{ path?: string[] }> }) {
+  const resolvedParams = await params;
+  return proxyRequest(request, resolvedParams);
 }
 
-export async function POST(request: NextRequest, { params }: { params: { path?: string[] } }) {
-  return proxyRequest(request, params);
+export async function POST(request: NextRequest, { params }: { params: Promise<{ path?: string[] }> }) {
+  const resolvedParams = await params;
+  return proxyRequest(request, resolvedParams);
 }
 
-export async function PUT(request: NextRequest, { params }: { params: { path?: string[] } }) {
-  return proxyRequest(request, params);
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ path?: string[] }> }) {
+  const resolvedParams = await params;
+  return proxyRequest(request, resolvedParams);
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { path?: string[] } }) {
-  return proxyRequest(request, params);
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ path?: string[] }> }) {
+  const resolvedParams = await params;
+  return proxyRequest(request, resolvedParams);
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { path?: string[] } }) {
-  return proxyRequest(request, params);
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ path?: string[] }> }) {
+  const resolvedParams = await params;
+  return proxyRequest(request, resolvedParams);
 }
