@@ -18,7 +18,7 @@ start /min "Next.js Dev Server" cmd /k "cd /d %~dp0 && npm run dev"
 
 :: Start ngrok last (exposes port 3000)
 echo [3/3] Starting ngrok tunnel...
-start "ngrok" cmd /k "ngrok http 3000"
+start "ngrok" powershell -NoExit -Command "ngrok http 3000"
 
 :: Open ngrok web UI
 start "ngrok UI" "http://127.0.0.1:4040"
