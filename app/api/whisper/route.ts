@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get Whisper server configuration
-    const whisperApiUrl = process.env.WHISPER_API_URL || 'http://127.0.0.1:8659';
+    const whisperApiUrl = (process.env.WHISPER_API_URL || 'http://127.0.0.1:8659').trim();
     const whisperApiKey = process.env.WHISPER_API_KEY || 'local-whisper';
 
     console.log(`[Whisper API] Forwarding to local Whisper server at ${whisperApiUrl}`);
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
 
-        const whisperRes = await fetch(`${whisperApiUrl}/v1/audio/transcriptions`, {
+        const whisperRes = await fetch(`${whisperApiUrl.replace(/\/+$/, '')}/v1/audio/transcriptions`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${whisperApiKey}`,
@@ -134,13 +134,13 @@ export async function POST(request: NextRequest) {
 // GET /api/whisper - Check whisper status
 export async function GET() {
   try {
-    const whisperApiUrl = process.env.WHISPER_API_URL || 'http://127.0.0.1:8659';
+    const whisperApiUrl = (process.env.WHISPER_API_URL || 'http://127.0.0.1:8659').trim();
 
     // Check if Whisper server is running
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
-    const healthRes = await fetch(`${whisperApiUrl}/health`, {
+    const healthRes = await fetch(`${whisperApiUrl.replace(/\/+$/, '')}/health`, {
       signal: controller.signal,
     });
 
