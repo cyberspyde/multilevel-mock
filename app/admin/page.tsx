@@ -1879,13 +1879,13 @@ function AITab() {
                   </label>
                   <input
                     type="text"
-                    value={config.local_api_url || process.env.LOCAL_API_URL || 'http://localhost:11434/v1'}
+                    value={config.local_api_url || '/api/lm'}
                     onChange={(e) => setConfig({ ...config, local_api_url: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none font-mono"
-                    placeholder="http://localhost:11434/v1"
+                    placeholder="/api/lm"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Ollama: http://localhost:11434/v1 | LM Studio: http://localhost:1234/v1
+                    Proxy path (recommended): /api/lm
                   </p>
                 </div>
                 <div>
@@ -2421,7 +2421,7 @@ function SettingsTab() {
     setTestingLLM(true);
     setLlmTestResult(null);
 
-    const apiUrl = config.local_api_url || process.env.LOCAL_API_URL || 'http://localhost:1234/v1';
+    const apiUrl = config.local_api_url || '/api/lm';
     const model = config.local_model || 'google/gemma-3-4b';
 
     try {
@@ -2566,13 +2566,13 @@ function SettingsTab() {
             </label>
             <input
               type="text"
-              value={config.local_api_url || 'http://localhost:1234/v1'}
+              value={config.local_api_url || '/api/lm'}
               onChange={(e) => setConfig({ ...config, local_api_url: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 outline-none font-mono"
-              placeholder="http://localhost:1234/v1"
+              placeholder="/api/lm"
             />
             <p className="text-xs text-gray-500 mt-1">
-              Default: http://localhost:1234/v1 (LM Studio)
+              Default: /api/lm (proxied to LM Studio)
             </p>
           </div>
           <div>

@@ -14,7 +14,12 @@ export async function POST(request: NextRequest) {
 
     const startTime = Date.now();
 
-    const response = await fetch(`${apiUrl}/chat/completions`, {
+    const resolvedApiUrl = apiUrl.startsWith('/')
+      ? `${request.nextUrl.origin}${apiUrl}`
+      : apiUrl;
+    const baseApiUrl = resolvedApiUrl.replace(/\/+$/, '');
+
+    const response = await fetch(`${baseApiUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
