@@ -11,6 +11,7 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Bestcenter Multilevel Mock",
   description: "AI-powered mock exam platform for speaking and writing assessments",
+  icons: [{ rel: "icon", url: "/favicon.svg" }],
 };
 
 export const viewport: Viewport = {

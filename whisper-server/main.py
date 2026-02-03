@@ -234,12 +234,13 @@ if __name__ == "__main__":
     print(f"Device: {DEVICE}")
     print(f"Compute Type: {COMPUTE_TYPE}")
     print("=" * 60)
-    print("Starting server at http://127.0.0.1:8659")
+    print("Starting server at http://0.0.0.0:8659")
+    print("Accessible from any device on the network")
     print("=" * 60)
 
     uvicorn.run(
         app,
-        host="127.0.0.1",
+        host="0.0.0.0",
         port=8659,
         log_level="info",
     )

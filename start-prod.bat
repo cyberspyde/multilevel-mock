@@ -17,7 +17,7 @@ timeout /t 2 /nobreak > nul
 
 :: Start Next.js Production Server in a new window
 echo [2/2] Starting Next.js Production Server...
-start "Next.js Prod Server" cmd /k "cd /d %~dp0 && npm run start"
+start "Next.js Prod Server" cmd /k "cd /d %~dp0 && set WHISPER_API_URL=http://127.0.0.1:8659 && npm run start"
 
 echo.
 echo ========================================
