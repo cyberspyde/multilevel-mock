@@ -397,26 +397,82 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
   const [showRetry, setShowRetry] = useState(false);
   const [recordingActive, setRecordingActive] = useState(false); // Visual feedback for active recording
   const [mediaPlayed, setMediaPlayed] = useState(false); // Track if media has been played
+  const [phaseMessage, setPhaseMessage] = useState<string>(''); // Dynamic message for current phase
   const recordingStartTimeRef = useRef<number | null>(null);
+  const beepAudioRef = useRef<HTMLAudioElement | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const isTransitioningRef = useRef(false); // Prevent multiple transitions
+
+  // Initialize beep audio on mount
+  useEffect(() => {
+    beepAudioRef.current = new Audio('/beep.mp3');
+    beepAudioRef.current.preload = 'auto';
+    return () => {
+      if (beepAudioRef.current) {
+        beepAudioRef.current.pause();
+        beepAudioRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     fetchExam();
   }, [sessionId]);
 
+  // Start reading phase when question changes
   useEffect(() => {
-    if (exam && exam.questions && exam.questions.length > 0) {
+    if (exam && exam.questions && exam.questions.length > 0 && !isTransitioningRef.current) {
       setMediaPlayed(false);
-      startReadingPhase();
+      const currentQuestion = exam.questions[currentQuestionIndex];
+      if (currentQuestion) {
+        const readingTime = currentQuestion.readingTimeLimit || 10;
+        const hasMedia = currentQuestion.format === 'VIDEO' || 
+                        (currentQuestion.format === 'AUDIO_ONLY' && currentQuestion.mediaUrl);
+        
+        // Set appropriate message based on question type
+        let message = 'Read the question carefully';
+        if (currentQuestion.format === 'VIDEO' && currentQuestion.mediaUrl) {
+          message = 'Focus on the video that will play (5 seconds)';
+        } else if (currentQuestion.format === 'AUDIO_ONLY' && currentQuestion.mediaUrl) {
+          message = 'Prepare to listen to the audio (5 seconds)';
+        }
+        
+        setPhaseMessage(message);
+        setPhase('reading');
+        setTimeRemaining(hasMedia ? Math.min(readingTime, 5) : readingTime);
+        setQuestionStartTime(new Date());
+        setIsRecording(false);
+        setRecordingError(null);
+        setShowRetry(false);
+        setRecordingActive(false);
+      }
     }
   }, [exam, currentQuestionIndex]);
 
+  // Timer effect - handles countdown for reading and answering phases
   useEffect(() => {
-    if (timeRemaining <= 0) return;
+    // Clear any existing timer
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
 
-    const timer = setInterval(() => {
+    if (timeRemaining <= 0 || phase === 'idle' || phase === 'watching') {
+      return;
+    }
+
+    timerRef.current = setInterval(() => {
       setTimeRemaining(prev => {
-        if (prev <= 1) {
+        const newTime = prev - 1;
+        
+        if (newTime <= 0) {
+          // Prevent multiple transitions
+          if (isTransitioningRef.current) {
+            return 0;
+          }
+          
           if (phase === 'reading') {
+            isTransitioningRef.current = true;
             // After reading time, check if we need to play media
             const currentQuestion = exam?.questions[currentQuestionIndex];
             const hasMedia = currentQuestion?.format === 'VIDEO' ||
@@ -425,27 +481,72 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
             if (hasMedia && !mediaPlayed) {
               // Transition to watching phase - media will auto-play
               setPhase('watching');
-              setTimeRemaining(0); // No timer during media playback
+              setPhaseMessage(currentQuestion?.format === 'VIDEO' ? 'Watch the video carefully' : 'Listen to the audio carefully');
             } else {
               // No media, go directly to answering
-              startAnsweringPhase();
+              handleStartAnsweringPhase();
             }
+            
+            // Reset transition flag after a short delay
+            setTimeout(() => {
+              isTransitioningRef.current = false;
+            }, 500);
           } else if (phase === 'answering' && isRecording) {
             stopRecording();
           }
           return 0;
         }
-        return prev - 1;
+        return newTime;
       });
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [timeRemaining, phase, isRecording, exam, currentQuestionIndex, mediaPlayed]);
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [phase, exam, currentQuestionIndex, mediaPlayed, isRecording]);
 
   const handleMediaEnded = () => {
     setMediaPlayed(true);
     // After media ends, start answering phase (recording)
-    startAnsweringPhase();
+    handleStartAnsweringPhase();
+  };
+
+  // Play beep sound before recording starts
+  const playBeepSound = (): Promise<void> => {
+    return new Promise((resolve) => {
+      if (beepAudioRef.current) {
+        beepAudioRef.current.currentTime = 0;
+        beepAudioRef.current.play()
+          .then(() => {
+            // Wait for beep to finish (approximately 0.5-1 second)
+            setTimeout(resolve, 800);
+          })
+          .catch((err) => {
+            console.warn('Failed to play beep sound:', err);
+            resolve(); // Continue even if beep fails
+          });
+      } else {
+        resolve();
+      }
+    });
+  };
+
+  // Wrapper function to handle answering phase transition
+  const handleStartAnsweringPhase = async () => {
+    const currentQuestion = exam?.questions[currentQuestionIndex];
+    if (!currentQuestion) return;
+
+    const answeringTime = currentQuestion.answeringTimeLimit || 30;
+    setPhase('answering');
+    setPhaseMessage('Speak your answer clearly');
+    setTimeRemaining(answeringTime);
+    
+    // Play beep sound before starting recording
+    await playBeepSound();
+    startRecording();
   };
 
   const fetchExam = async () => {
@@ -480,13 +581,26 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
     }
   };
 
+  // Legacy function - now handled by useEffect, kept for manual triggering if needed
   const startReadingPhase = () => {
     const currentQuestion = exam?.questions[currentQuestionIndex];
     if (!currentQuestion) return;
 
-    const readingTime = currentQuestion.readingTimeLimit || 5;
+    const readingTime = currentQuestion.readingTimeLimit || 10;
+    const hasMedia = currentQuestion.format === 'VIDEO' || 
+                    (currentQuestion.format === 'AUDIO_ONLY' && currentQuestion.mediaUrl);
+    
+    // Set appropriate message based on question type
+    let message = 'Read the question carefully';
+    if (currentQuestion.format === 'VIDEO' && currentQuestion.mediaUrl) {
+      message = 'Focus on the video that will play (5 seconds)';
+    } else if (currentQuestion.format === 'AUDIO_ONLY' && currentQuestion.mediaUrl) {
+      message = 'Prepare to listen to the audio (5 seconds)';
+    }
+    
+    setPhaseMessage(message);
     setPhase('reading');
-    setTimeRemaining(readingTime);
+    setTimeRemaining(hasMedia ? Math.min(readingTime, 5) : readingTime);
     setQuestionStartTime(new Date());
     setIsRecording(false);
     setRecordingError(null);
@@ -494,14 +608,9 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
     setRecordingActive(false);
   };
 
-  const startAnsweringPhase = () => {
-    const currentQuestion = exam?.questions[currentQuestionIndex];
-    if (!currentQuestion) return;
-
-    const answeringTime = currentQuestion.answeringTimeLimit || 30;
-    setPhase('answering');
-    setTimeRemaining(answeringTime);
-    startRecording();
+  // Legacy startAnsweringPhase - now use handleStartAnsweringPhase
+  const startAnsweringPhase = async () => {
+    await handleStartAnsweringPhase();
   };
 
   const startRecording = async () => {
@@ -824,12 +933,10 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600 uppercase tracking-wide">
-                {phase === 'reading' ? '📖 Reading Time' : '🎤 Recording Time'}
+                {phase === 'reading' ? '📖 Preparation Time' : '🎤 Recording Time'}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {phase === 'reading'
-                  ? 'Read the question carefully'
-                  : 'Speak your answer clearly'}
+                {phaseMessage || (phase === 'reading' ? 'Read the question carefully' : 'Speak your answer clearly')}
               </p>
             </div>
             <div className="text-center">
@@ -984,15 +1091,31 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
           ) : phase === 'reading' ? (
             <div className="text-center py-8">
               <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-10 h-10 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                </svg>
+                {currentQuestion.format === 'VIDEO' && currentQuestion.mediaUrl ? (
+                  <svg className="w-10 h-10 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                ) : currentQuestion.format === 'AUDIO_ONLY' && currentQuestion.mediaUrl ? (
+                  <svg className="w-10 h-10 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                  </svg>
+                ) : (
+                  <svg className="w-10 h-10 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                  </svg>
+                )}
               </div>
-              <p className="text-lg font-semibold text-gray-900">Read the question carefully</p>
+              <p className="text-lg font-semibold text-gray-900">
+                {currentQuestion.format === 'VIDEO' && currentQuestion.mediaUrl
+                  ? 'Focus on the video'
+                  : currentQuestion.format === 'AUDIO_ONLY' && currentQuestion.mediaUrl
+                    ? 'Prepare to listen'
+                    : 'Read the question carefully'}
+              </p>
               <p className="text-sm text-gray-500 mt-2">
                 {(currentQuestion.format === 'VIDEO' || currentQuestion.format === 'AUDIO_ONLY') && currentQuestion.mediaUrl
-                  ? 'Media will play automatically, then recording will start'
-                  : 'Recording will start automatically'}
+                  ? 'Media will play automatically, then you\'ll hear a beep when recording starts'
+                  : 'You\'ll hear a beep when recording starts'}
               </p>
             </div>
           ) : phase === 'watching' ? (
