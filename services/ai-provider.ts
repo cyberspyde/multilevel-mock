@@ -349,3 +349,340 @@ export async function testAllProviders(): Promise<
 
   return results as Record<AIProvider, { success: boolean; error?: string }>;
 }
+
+// ============================================
+// CHUNKED GRADING SUPPORT FOR SMALL CONTEXT WINDOWS
+// ============================================
+
+/**
+ * Estimate token count (rough approximation: ~4 chars per token for English)
+ */
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/**
+ * Configuration for chunked grading
+ */
+export interface ChunkedGradingConfig {
+  maxContextTokens: number; // Max tokens for the model (e.g., 4096, 8192)
+  reservedTokens: number;   // Tokens reserved for system prompt and output
+  provider: AIProvider;
+  dbConfig?: Record<string, string>;
+}
+
+/**
+ * Result from grading a chunk
+ */
+export interface ChunkGradeResult {
+  chunkIndex: number;
+  questionIndices: number[];
+  summary: string;
+  feedback: string;
+  rawResponse: string;
+}
+
+/**
+ * Aggregated result from chunked grading
+ */
+export interface AggregatedGradeResult {
+  summary: string;
+  feedback: string;
+  chunksUsed: number;
+  provider: AIProvider;
+  model: string;
+}
+
+/**
+ * Split answers into chunks that fit within context limits
+ */
+export function chunkAnswers<T extends { text: string }>(
+  answers: T[],
+  systemPromptTokens: number,
+  maxContextTokens: number,
+  reservedOutputTokens: number = 1500
+): T[][] {
+  const availableTokens = maxContextTokens - systemPromptTokens - reservedOutputTokens;
+  const chunks: T[][] = [];
+  let currentChunk: T[] = [];
+  let currentTokens = 0;
+
+  for (const answer of answers) {
+    const answerTokens = estimateTokens(answer.text);
+    
+    // If single answer is too large, it still goes in its own chunk
+    if (answerTokens > availableTokens) {
+      if (currentChunk.length > 0) {
+        chunks.push(currentChunk);
+        currentChunk = [];
+        currentTokens = 0;
+      }
+      chunks.push([answer]);
+      continue;
+    }
+
+    // Check if adding this answer would exceed limit
+    if (currentTokens + answerTokens > availableTokens) {
+      if (currentChunk.length > 0) {
+        chunks.push(currentChunk);
+      }
+      currentChunk = [answer];
+      currentTokens = answerTokens;
+    } else {
+      currentChunk.push(answer);
+      currentTokens += answerTokens;
+    }
+  }
+
+  // Don't forget the last chunk
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
+}
+
+/**
+ * Build a mini grading prompt for a chunk of answers
+ */
+export function buildChunkGradingPrompt(
+  studentName: string,
+  examTitle: string,
+  examType: 'SPEAKING' | 'WRITING',
+  chunkIndex: number,
+  totalChunks: number,
+  answers: Array<{ questionIndex: number; question: string; answer: string; wordCount?: number; duration?: number }>
+): string {
+  const isSpeaking = examType === 'SPEAKING';
+  
+  let prompt = `You are grading PART ${chunkIndex + 1} of ${totalChunks} for student "${studentName}" in the ${examType.toLowerCase()} exam "${examTitle}".
+
+${isSpeaking ? 'SPEAKING' : 'WRITING'} RESPONSES (Part ${chunkIndex + 1}/${totalChunks}):
+
+`;
+
+  for (const ans of answers) {
+    prompt += `Question ${ans.questionIndex + 1}: ${ans.question}\n`;
+    prompt += `Response: "${ans.answer}"\n`;
+    if (ans.wordCount) prompt += `Word Count: ${ans.wordCount} words\n`;
+    if (ans.duration) prompt += `Duration: ${ans.duration} seconds\n`;
+    prompt += '\n';
+  }
+
+  prompt += `
+EVALUATE these ${answers.length} response(s) using these criteria:
+${isSpeaking ? `
+1. Task Achievement & Relevance (Did they answer the question?)
+2. Fluency & Coherence (Natural speech flow?)
+3. Pronunciation & Intelligibility (Clear enough to understand?)
+4. Vocabulary & Expression (Good word choices?)
+5. Grammar (Acceptable accuracy?)
+` : `
+1. Task Achievement & Relevance (Did they address the prompt?)
+2. Content Quality & Development (Well-developed ideas?)
+3. Coherence & Organization (Logical structure?)
+4. Language Use & Vocabulary (Good word choices?)
+5. Grammar & Accuracy (Acceptable accuracy?)
+`}
+
+REQUIRED OUTPUT FORMAT:
+CHUNK_SUMMARY:
+[2-3 sentences summarizing performance on these ${answers.length} question(s)]
+
+CHUNK_FEEDBACK:
+[Specific strengths and weaknesses for each question in this chunk]
+`;
+
+  return prompt;
+}
+
+/**
+ * Build a final aggregation prompt to combine chunk results
+ */
+export function buildAggregationPrompt(
+  studentName: string,
+  examTitle: string,
+  examType: 'SPEAKING' | 'WRITING',
+  chunkResults: ChunkGradeResult[]
+): string {
+  let prompt = `You are combining grading results for student "${studentName}" from the ${examType.toLowerCase()} exam "${examTitle}".
+
+The exam was graded in ${chunkResults.length} parts due to length. Here are the results from each part:
+
+`;
+
+  for (const chunk of chunkResults) {
+    prompt += `=== PART ${chunk.chunkIndex + 1} (Questions ${chunk.questionIndices.map(i => i + 1).join(', ')}) ===
+Summary: ${chunk.summary}
+Feedback: ${chunk.feedback}
+
+`;
+  }
+
+  prompt += `
+Now provide a UNIFIED final evaluation that combines all parts:
+
+OVERALL_PERFORMANCE:
+[2-3 sentences summarizing the student's OVERALL performance across ALL questions]
+
+STRENGTHS:
+- [List 2-4 key strengths observed across all responses]
+
+AREAS_FOR_IMPROVEMENT:
+- [List 2-5 key areas for improvement across all responses]
+
+ACTIONABLE_RECOMMENDATIONS:
+- [3-5 specific, actionable steps to improve]
+
+Be concise but comprehensive. Consider patterns across all responses.`;
+
+  return prompt;
+}
+
+/**
+ * Parse chunk grading response
+ */
+export function parseChunkResponse(response: string): { summary: string; feedback: string } {
+  const summaryMatch = response.match(/CHUNK_SUMMARY:\s*([\s\S]*?)(?=\nCHUNK_FEEDBACK:|$)/i);
+  const feedbackMatch = response.match(/CHUNK_FEEDBACK:\s*([\s\S]*?)$/i);
+
+  return {
+    summary: summaryMatch?.[1]?.trim() || 'Unable to parse chunk summary.',
+    feedback: feedbackMatch?.[1]?.trim() || 'Unable to parse chunk feedback.',
+  };
+}
+
+/**
+ * Grade content in chunks when context is too large
+ */
+export async function gradeInChunks(
+  studentName: string,
+  examTitle: string,
+  examType: 'SPEAKING' | 'WRITING',
+  answers: Array<{ question: string; answer: string; wordCount?: number; duration?: number }>,
+  config: ChunkedGradingConfig
+): Promise<AggregatedGradeResult> {
+  // Prepare answers with text for chunking
+  const answersWithText = answers.map((a, i) => ({
+    ...a,
+    questionIndex: i,
+    text: `Q: ${a.question}\nA: ${a.answer}`,
+  }));
+
+  // Estimate system prompt size (base prompt is ~500 tokens)
+  const systemPromptTokens = 500;
+  
+  // Check if we need chunking
+  const totalTokens = answersWithText.reduce((sum, a) => sum + estimateTokens(a.text), 0);
+  const availableTokens = config.maxContextTokens - config.reservedTokens;
+
+  console.log(`[Chunked Grading] Total content: ~${totalTokens} tokens, Available: ~${availableTokens} tokens`);
+
+  // If it fits, no chunking needed
+  if (totalTokens + systemPromptTokens < availableTokens) {
+    console.log('[Chunked Grading] Content fits in single request, no chunking needed');
+    throw new Error('CHUNKING_NOT_NEEDED');
+  }
+
+  // Chunk the answers
+  const chunks = chunkAnswers(answersWithText, systemPromptTokens, config.maxContextTokens, config.reservedTokens);
+  console.log(`[Chunked Grading] Split into ${chunks.length} chunks`);
+
+  // Grade each chunk
+  const chunkResults: ChunkGradeResult[] = [];
+  let usedModel = '';
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const prompt = buildChunkGradingPrompt(
+      studentName,
+      examTitle,
+      examType,
+      i,
+      chunks.length,
+      chunk.map(a => ({
+        questionIndex: a.questionIndex,
+        question: a.question,
+        answer: a.answer,
+        wordCount: a.wordCount,
+        duration: a.duration,
+      }))
+    );
+
+    console.log(`[Chunked Grading] Grading chunk ${i + 1}/${chunks.length} (${chunk.length} questions)`);
+
+    try {
+      const result = await generateContentWithFallback(prompt, config.provider, config.dbConfig);
+      usedModel = result.model;
+      
+      const parsed = parseChunkResponse(result.content);
+      chunkResults.push({
+        chunkIndex: i,
+        questionIndices: chunk.map(a => a.questionIndex),
+        summary: parsed.summary,
+        feedback: parsed.feedback,
+        rawResponse: result.content,
+      });
+    } catch (error) {
+      console.error(`[Chunked Grading] Chunk ${i + 1} failed:`, error);
+      chunkResults.push({
+        chunkIndex: i,
+        questionIndices: chunk.map(a => a.questionIndex),
+        summary: `Failed to grade questions ${chunk.map(a => a.questionIndex + 1).join(', ')}.`,
+        feedback: 'Grading service encountered an error for this section.',
+        rawResponse: '',
+      });
+    }
+
+    // Small delay between chunks to avoid rate limiting
+    if (i < chunks.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+
+  // Aggregate results
+  console.log('[Chunked Grading] Aggregating chunk results...');
+  
+  const aggregationPrompt = buildAggregationPrompt(studentName, examTitle, examType, chunkResults);
+  
+  try {
+    const aggregationResult = await generateContentWithFallback(aggregationPrompt, config.provider, config.dbConfig);
+    usedModel = aggregationResult.model;
+
+    // Parse aggregated response
+    const overallMatch = aggregationResult.content.match(/OVERALL_PERFORMANCE:\s*([\s\S]*?)(?=\nSTRENGTHS:|$)/i);
+    const strengthsMatch = aggregationResult.content.match(/STRENGTHS:\s*([\s\S]*?)(?=\nAREAS_FOR_IMPROVEMENT:|$)/i);
+    const areasMatch = aggregationResult.content.match(/AREAS_FOR_IMPROVEMENT:\s*([\s\S]*?)(?=\nACTIONABLE_RECOMMENDATIONS:|$)/i);
+    const recommendationsMatch = aggregationResult.content.match(/ACTIONABLE_RECOMMENDATIONS:\s*([\s\S]*?)$/i);
+
+    const summary = overallMatch?.[1]?.trim() || chunkResults.map(c => c.summary).join(' ');
+    
+    let feedback = '';
+    if (strengthsMatch) feedback += `Strengths:\n${strengthsMatch[1].trim()}\n\n`;
+    if (areasMatch) feedback += `Areas for Improvement:\n${areasMatch[1].trim()}\n\n`;
+    if (recommendationsMatch) feedback += `Recommendations:\n${recommendationsMatch[1].trim()}`;
+    
+    if (!feedback) {
+      feedback = chunkResults.map((c, i) => `Part ${i + 1}:\n${c.feedback}`).join('\n\n');
+    }
+
+    return {
+      summary,
+      feedback: feedback.trim(),
+      chunksUsed: chunks.length,
+      provider: config.provider,
+      model: usedModel,
+    };
+  } catch (error) {
+    console.error('[Chunked Grading] Aggregation failed:', error);
+    
+    // Return concatenated results as fallback
+    return {
+      summary: chunkResults.map(c => c.summary).join(' '),
+      feedback: chunkResults.map((c, i) => `Part ${i + 1}:\n${c.feedback}`).join('\n\n'),
+      chunksUsed: chunks.length,
+      provider: config.provider,
+      model: usedModel || 'unknown',
+    };
+  }
+}

@@ -21,7 +21,7 @@ echo ========================================
 echo  All development servers started!
 echo ========================================
 echo.
-echo  - Whisper Server: http://127.0.0.1:8000
+echo  - Whisper Server: http://127.0.0.1:8659
 echo  - Next.js App:    http://localhost:9586
 echo  - Prisma Studio:  http://localhost:5555
 echo.

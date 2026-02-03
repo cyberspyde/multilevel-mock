@@ -24,7 +24,7 @@ echo ========================================
 echo  All production servers started!
 echo ========================================
 echo.
-echo  - Whisper Server: http://127.0.0.1:8000
+echo  - Whisper Server: http://127.0.0.1:8659
 echo  - Next.js App:    http://localhost:3000
 echo.
 echo Close this window or press any key to exit.

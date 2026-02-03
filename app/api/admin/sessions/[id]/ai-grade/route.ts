@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { generateContentWithFallback, type AIProvider } from '@/services/ai-provider';
+import { 
+  generateContentWithFallback, 
+  gradeInChunks, 
+  estimateTokens,
+  type AIProvider,
+  type ChunkedGradingConfig 
+} from '@/services/ai-provider';
 import type { ExamSession, SpeakingAnswer, WritingAnswer } from '@prisma/client';
 
 type SessionWithAnswers = ExamSession & {
@@ -55,6 +61,10 @@ export async function POST(
     const dbConfig: Record<string, string> = {};
     allConfig.forEach((c) => { dbConfig[c.key] = c.value; });
 
+    // Get context limit from config (default to 8192 for local models)
+    const maxContextTokens = parseInt(dbConfig['ai_max_context_tokens'] || '8192', 10);
+    const reservedTokens = parseInt(dbConfig['ai_reserved_tokens'] || '2000', 10);
+
     // Calculate WPM stats
     const wpmStats = calculateWpmStats(session);
 
@@ -69,21 +79,60 @@ export async function POST(
     let usedModel: string;
     let score: number;
     let errorMessage: string | undefined;
+    let chunksUsed = 0;
+
+    // Check if we need chunked grading based on prompt size
+    const promptTokens = estimateTokens(prompt);
+    const needsChunking = promptTokens > (maxContextTokens - reservedTokens);
+
+    console.log(`[AI Grade] Prompt size: ~${promptTokens} tokens, Max context: ${maxContextTokens}, Needs chunking: ${needsChunking}`);
 
     try {
-      const result = await generateContentWithFallback(prompt, aiProvider, dbConfig);
-      const aiResponse = parseAIResponse(result.content);
+      if (needsChunking && !customPrompt) {
+        // Use chunked grading for large content
+        console.log('[AI Grade] Using chunked grading due to large content size');
+        
+        const answers = prepareAnswersForChunking(session);
+        const examType = session.exam.type as 'SPEAKING' | 'WRITING';
 
-      // Validate AI response
-      if (!aiResponse.summary || !aiResponse.feedback) {
-        throw new Error('Invalid AI response format');
+        const chunkedConfig: ChunkedGradingConfig = {
+          maxContextTokens,
+          reservedTokens,
+          provider: aiProvider,
+          dbConfig,
+        };
+
+        const chunkedResult = await gradeInChunks(
+          session.studentName,
+          session.exam.title,
+          examType,
+          answers,
+          chunkedConfig
+        );
+
+        summary = chunkedResult.summary;
+        feedback = chunkedResult.feedback;
+        usedProvider = chunkedResult.provider;
+        usedModel = chunkedResult.model;
+        chunksUsed = chunkedResult.chunksUsed;
+        score = estimateScore(session, { summary, feedback });
+
+      } else {
+        // Standard single-request grading
+        const result = await generateContentWithFallback(prompt, aiProvider, dbConfig);
+        const aiResponse = parseAIResponse(result.content);
+
+        // Validate AI response
+        if (!aiResponse.summary || !aiResponse.feedback) {
+          throw new Error('Invalid AI response format');
+        }
+
+        summary = aiResponse.summary;
+        feedback = aiResponse.feedback;
+        usedProvider = result.provider;
+        usedModel = result.model;
+        score = estimateScore(session, aiResponse);
       }
-
-      summary = aiResponse.summary;
-      feedback = aiResponse.feedback;
-      usedProvider = result.provider;
-      usedModel = result.model;
-      score = estimateScore(session, aiResponse);
 
     } catch (aiError: unknown) {
       errorMessage = aiError instanceof Error ? aiError.message : 'Unknown error';
@@ -110,6 +159,7 @@ export async function POST(
             wpm: wpmStats.wpm,
             duration: wpmStats.totalDuration,
             gradedBy: 'admin',
+            ...(chunksUsed > 0 && { chunksUsed }),
             ...(errorMessage && { error: errorMessage }),
           },
         },
@@ -125,6 +175,7 @@ export async function POST(
       grade,
       provider: usedProvider,
       model: usedModel,
+      ...(chunksUsed > 0 && { chunksUsed, message: `Grading completed in ${chunksUsed} parts due to content size` }),
       ...(errorMessage && { warning: 'AI service unavailable, using fallback evaluation' }),
     });
 
@@ -151,6 +202,40 @@ function calculateWpmStats(session: SessionWithAnswers): WpmStats {
     }
   }
   return stats;
+}
+
+/**
+ * Prepare answers for chunked grading
+ */
+function prepareAnswersForChunking(session: SessionWithAnswers): Array<{
+  question: string;
+  answer: string;
+  wordCount?: number;
+  duration?: number;
+}> {
+  const examType = session.exam.type;
+  const answers: Array<{ question: string; answer: string; wordCount?: number; duration?: number }> = [];
+
+  if (examType === 'SPEAKING' && session.speakingAnswers) {
+    for (const sa of session.speakingAnswers) {
+      answers.push({
+        question: (sa as any).question?.text || 'Unknown question',
+        answer: sa.transcription || '(No transcription)',
+        duration: sa.duration || undefined,
+        wordCount: sa.transcription?.split(/\s+/).length || 0,
+      });
+    }
+  } else if (examType === 'WRITING' && session.writingAnswers) {
+    for (const wa of session.writingAnswers) {
+      answers.push({
+        question: (wa as any).prompt?.prompt || 'Unknown prompt',
+        answer: wa.content || '(No answer)',
+        wordCount: wa.wordCount || 0,
+      });
+    }
+  }
+
+  return answers;
 }
 
 function applyCustomPrompt(customPrompt: string, session: SessionWithAnswers): string {
