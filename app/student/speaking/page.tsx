@@ -492,6 +492,7 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
               isTransitioningRef.current = false;
             }, 500);
           } else if (phase === 'answering' && isRecording) {
+            void playBeepSound();
             stopRecording();
           }
           return 0;
@@ -1114,8 +1115,8 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
               </p>
               <p className="text-sm text-gray-500 mt-2">
                 {(currentQuestion.format === 'VIDEO' || currentQuestion.format === 'AUDIO_ONLY') && currentQuestion.mediaUrl
-                  ? 'Media will play automatically, then you\'ll hear a beep when recording starts'
-                  : 'You\'ll hear a beep when recording starts'}
+                  ? 'Media will play automatically, then you\'ll hear a beep when recording starts and another when time ends'
+                  : 'You\'ll hear a beep when recording starts and another when time ends'}
               </p>
             </div>
           ) : phase === 'watching' ? (
