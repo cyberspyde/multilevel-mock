@@ -264,7 +264,7 @@ function WritingResultContent() {
               {aiGrade.score && (
                 <div className="mb-6 p-4 bg-white rounded-xl border border-purple-200">
                   <p className="text-sm text-gray-500 mb-1">Overall Score</p>
-                  <p className="text-3xl font-bold text-purple-600">{aiGrade.score}/100</p>
+                  <p className="text-3xl font-bold text-purple-600">{aiGrade.score}/75</p>
                 </div>
               )}
 

@@ -402,6 +402,7 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
   const beepAudioRef = useRef<HTMLAudioElement | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const isTransitioningRef = useRef(false); // Prevent multiple transitions
+  const finishRequestedRef = useRef(false);
 
   // Initialize beep audio on mount
   useEffect(() => {
@@ -430,7 +431,7 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
                         (currentQuestion.format === 'AUDIO_ONLY' && currentQuestion.mediaUrl);
         
         // Set appropriate message based on question type
-        let message = 'Read the question carefully';
+        let message = 'Prepare for the question';
         if (currentQuestion.format === 'VIDEO' && currentQuestion.mediaUrl) {
           message = 'Focus on the video that will play (5 seconds)';
         } else if (currentQuestion.format === 'AUDIO_ONLY' && currentQuestion.mediaUrl) {
@@ -592,7 +593,7 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
                     (currentQuestion.format === 'AUDIO_ONLY' && currentQuestion.mediaUrl);
     
     // Set appropriate message based on question type
-    let message = 'Read the question carefully';
+    let message = 'Prepare for the question';
     if (currentQuestion.format === 'VIDEO' && currentQuestion.mediaUrl) {
       message = 'Focus on the video that will play (5 seconds)';
     } else if (currentQuestion.format === 'AUDIO_ONLY' && currentQuestion.mediaUrl) {
@@ -612,6 +613,30 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
   // Legacy startAnsweringPhase - now use handleStartAnsweringPhase
   const startAnsweringPhase = async () => {
     await handleStartAnsweringPhase();
+  };
+
+  const handleFinishExam = async () => {
+    finishRequestedRef.current = true;
+
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    setTimeRemaining(0);
+    setPhase('idle');
+
+    if (isRecording) {
+      stopRecording();
+      return;
+    }
+
+    if (isProcessing) {
+      return;
+    }
+
+    await fetch(`/api/sessions/${sessionId}/complete`, { method: 'POST' });
+    window.location.href = `/student/speaking/result?id=${sessionId}`;
   };
 
   const startRecording = async () => {
@@ -856,6 +881,12 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
       setIsProcessing(false);
 
       // Move to next question or complete
+      if (finishRequestedRef.current) {
+        await fetch(`/api/sessions/${sessionId}/complete`, { method: 'POST' });
+        window.location.href = `/student/speaking/result?id=${sessionId}`;
+        return;
+      }
+
       if (currentQuestionIndex < exam.questions.length - 1) {
         setCurrentQuestionIndex(currentQuestionIndex + 1);
       } else {
@@ -920,11 +951,19 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
             Question {currentQuestionIndex + 1} of {exam.questions.length}
           </p>
         </div>
-        <div className="text-right">
-          <span className="text-2xl font-bold text-blue-600">
-            {currentQuestionIndex + 1}
-          </span>
-          <span className="text-gray-400"> / {exam.questions.length}</span>
+        <div className="flex items-center gap-4">
+          <div className="text-right">
+            <span className="text-2xl font-bold text-blue-600">
+              {currentQuestionIndex + 1}
+            </span>
+            <span className="text-gray-400"> / {exam.questions.length}</span>
+          </div>
+          <button
+            onClick={handleFinishExam}
+            className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+          >
+            Finish Exam
+          </button>
         </div>
       </div>
 
@@ -937,7 +976,7 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
                 {phase === 'reading' ? '📖 Preparation Time' : '🎤 Recording Time'}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {phaseMessage || (phase === 'reading' ? 'Read the question carefully' : 'Speak your answer clearly')}
+                {phaseMessage || (phase === 'reading' ? 'Prepare for the question' : 'Speak your answer clearly')}
               </p>
             </div>
             <div className="text-center">
@@ -1030,7 +1069,7 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
               ) : (
                 <div className="bg-slate-100 rounded-lg p-6 mb-4 text-center border border-slate-200">
                   <p className="text-slate-600 font-medium">
-                    {phase === 'reading' ? 'Video will play after reading time' : 'Video finished'}
+                    {phase === 'reading' ? 'Video will play after preparation time' : 'Video finished'}
                   </p>
                 </div>
               )
@@ -1063,7 +1102,7 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
               ) : (
                 <div className="bg-slate-100 rounded-lg p-6 mb-4 text-center border border-slate-200">
                   <p className="text-slate-600 font-medium">
-                    {phase === 'reading' ? 'Audio will play after reading time' : 'Audio finished'}
+                    {phase === 'reading' ? 'Audio will play after preparation time' : 'Audio finished'}
                   </p>
                 </div>
               )
@@ -1111,7 +1150,7 @@ function SpeakingExamInterface({ sessionId }: { sessionId: string }) {
                   ? 'Focus on the video'
                   : currentQuestion.format === 'AUDIO_ONLY' && currentQuestion.mediaUrl
                     ? 'Prepare to listen'
-                    : 'Read the question carefully'}
+                    : 'Prepare for the question'}
               </p>
               <p className="text-sm text-gray-500 mt-2">
                 {(currentQuestion.format === 'VIDEO' || currentQuestion.format === 'AUDIO_ONLY') && currentQuestion.mediaUrl

@@ -467,6 +467,9 @@ Check if clarity and coherence are maintained at this pace.
 REQUIRED OUTPUT FORMAT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+SCORE (0-75):
+[Provide an overall numeric score between 0 and 75]
+
 OVERALL_PERFORMANCE:
 [2-3 sentences summarizing the student's performance. BE HONEST. If the response is insufficient, say so clearly. If it's strong, acknowledge that. Mention the most critical issues or strengths.]
 
@@ -649,7 +652,7 @@ function estimateScore(session: SessionWithAnswers, aiResponse: ParsedAIResponse
     score += 5;
   }
 
-  return Math.max(0, Math.min(100, score));
+  return Math.max(0, Math.min(75, score));
 }
 
 function generatePlaceholderSummary(session: SessionWithAnswers): string {

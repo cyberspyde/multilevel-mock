@@ -262,7 +262,7 @@ export async function downloadGradeAsPdf(
 
   ${grade.score !== undefined ? `
   <div class="score-box">
-    <div class="score-value">${grade.score}/100</div>
+    <div class="score-value">${grade.score}/75</div>
     <div class="score-label">Overall Score</div>
   </div>
   ` : ''}

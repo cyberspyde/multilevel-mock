@@ -3388,12 +3388,12 @@ function SessionDetailModal({ session, onClose, onRefresh }: { session: SessionD
               <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Score (0-100)
+                    Score (0-75)
                   </label>
                   <input
                     type="number"
                     min="0"
-                    max="100"
+                    max="75"
                     value={manualGrade.score}
                     onChange={(e) => setManualGrade({ ...manualGrade, score: parseInt(e.target.value) })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none"
